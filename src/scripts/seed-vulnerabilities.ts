@@ -1,4 +1,5 @@
 import { getDatabase } from '../lib/mongodb';
+import { vulnerabilityProcessor } from '../lib/vulnerability-processor';
 import type { Vulnerability } from '../types/vulnerability';
 
 const generateDateRange = (daysAgo: number) => {
@@ -969,6 +970,12 @@ export async function seedVulnerabilities() {
     }
 
     console.log('📊 Database indexing completed');
+    
+    // Process vulnerabilities through alert system
+    console.log('🚨 Processing vulnerabilities through alert system...');
+    await vulnerabilityProcessor.processVulnerabilities(vulnerabilities);
+    console.log('✅ Alert processing completed');
+    
     console.log('🎉 Vulnerability seeding completed successfully!');
 
     // Display summary statistics

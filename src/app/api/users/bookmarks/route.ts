@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/mongodb';
 import { getServerUser } from '@/lib/supabase-server';
+import { notificationService } from '@/lib/notification-service';
 
 export async function GET() {
   try {
@@ -112,6 +113,18 @@ export async function POST(request: NextRequest) {
       timestamp: new Date().toISOString(),
       metadata: { priority, tags },
     });
+
+    // Send notification
+    try {
+      await notificationService.sendBookmarkUpdate(user.id, {
+        vulnerabilityId,
+        action: 'created',
+        title: `Bookmarked ${vulnerabilityId}`,
+      });
+    } catch (notificationError) {
+      console.error('Error sending bookmark notification:', notificationError);
+      // Don't fail the request if notification fails
+    }
 
     return NextResponse.json({ success: true, bookmark });
   } catch (error) {

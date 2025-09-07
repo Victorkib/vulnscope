@@ -39,7 +39,7 @@ type ThemeProviderState = {
   theme: Theme;
   preferences: UserPreferences | null;
   setTheme: (theme: Theme) => void;
-  updatePreference: (key: keyof UserPreferences, value: any) => void;
+  updatePreference: (key: keyof UserPreferences, value: unknown) => void;
   loadPreferences: () => Promise<void>;
   savePreferences: () => Promise<void>;
   isDarkMode: boolean;
@@ -86,7 +86,7 @@ const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 export function ThemeProvider({
   children,
   defaultTheme = 'system',
-  storageKey = 'vulnscope-theme',
+  storageKey: _storageKey = 'vulnscope-theme',
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(defaultTheme);
@@ -112,16 +112,18 @@ export function ThemeProvider({
 
   const loadPreferences = async () => {
     try {
-      const response = await fetch('/api/users/preferences');
-      if (response.ok) {
-        const data = await response.json();
-        const mergedPreferences = { ...defaultPreferences, ...data };
-        setPreferences(mergedPreferences);
-        setTheme(mergedPreferences.theme);
-      } else {
-        setPreferences(defaultPreferences);
-        setTheme(defaultPreferences.theme);
-      }
+      // Import apiClient dynamically to avoid circular dependencies
+      const { apiClient } = await import('@/lib/api-client');
+      
+      const data = await apiClient.get('/api/users/preferences', {
+        cache: true,
+        cacheTTL: 600000, // 10 minutes cache
+      });
+      
+      const mergedPreferences = { ...defaultPreferences, ...data };
+      setPreferences(mergedPreferences);
+      setTheme(mergedPreferences.theme);
+      console.log('Preferences loaded successfully:', mergedPreferences);
     } catch (error) {
       console.error('Failed to load preferences:', error);
       setPreferences(defaultPreferences);
@@ -135,44 +137,49 @@ export function ThemeProvider({
     if (!preferences) return;
 
     try {
-      await fetch('/api/users/preferences', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(preferences),
-      });
+      // Import apiClient dynamically to avoid circular dependencies
+      const { apiClient } = await import('@/lib/api-client');
+      
+      await apiClient.put('/api/users/preferences', preferences);
+      
+      // Clear cache to ensure fresh data on next fetch
+      apiClient.clearCache('/api/users/preferences');
     } catch (error) {
       console.error('Failed to save preferences:', error);
     }
   };
 
-  const updatePreference = (key: keyof UserPreferences, value: any) => {
+  const updatePreference = <K extends keyof UserPreferences>(
+    key: K,
+    value: UserPreferences[K]
+  ) => {
     if (!preferences) return;
     const updatedPreferences = { ...preferences, [key]: value };
     setPreferences(updatedPreferences);
 
     if (key === 'theme') {
-      setTheme(value);
+      setTheme(value as 'light' | 'dark' | 'system');
     }
 
     // Apply changes immediately
     switch (key) {
       case 'fontSize':
-        applyFontSize(value);
+        applyFontSize(value as string);
         break;
       case 'showAnimations':
-        applyAnimations(value);
+        applyAnimations(value as boolean);
         break;
       case 'highContrast':
-        applyHighContrast(value);
+        applyHighContrast(value as boolean);
         break;
       case 'reduceMotion':
-        applyReduceMotion(value);
+        applyReduceMotion(value as boolean);
         break;
       case 'screenReader':
-        applyScreenReader(value);
+        applyScreenReader(value as boolean);
         break;
       case 'dashboardLayout':
-        applyDashboardLayout(value);
+        applyDashboardLayout(value as string);
         break;
     }
   };

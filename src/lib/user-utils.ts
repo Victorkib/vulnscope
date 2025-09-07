@@ -101,25 +101,25 @@ export function formatActivityDescription(activity: UserActivity): string {
         : description || 'Deleted a bookmark';
 
     case 'search':
-      const filterCount = metadata?.filterCount || 0;
+      const filterCount = (metadata?.filterCount as number) || 0;
       return filterCount > 0
         ? `Searched with ${filterCount} filter${filterCount !== 1 ? 's' : ''}`
         : description || 'Performed a search';
 
     case 'search_saved':
       return metadata?.searchName
-        ? `Saved search "${metadata.searchName}"`
+        ? `Saved search "${metadata.searchName as string}"`
         : description || 'Saved a search';
 
     case 'export':
-      const format = metadata?.format || 'unknown';
-      const count = metadata?.count || 0;
+      const format = (metadata?.format as string) || 'unknown';
+      const count = (metadata?.count as number) || 0;
       return count > 0
         ? `Exported ${count} vulnerabilities as ${format.toUpperCase()}`
         : description || 'Exported data';
 
     case 'settings_changed':
-      const changedCount = metadata?.changedSettings?.length || 0;
+      const changedCount = (metadata?.changedSettings as unknown[])?.length || 0;
       return changedCount > 0
         ? `Updated ${changedCount} setting${changedCount !== 1 ? 's' : ''}`
         : description || 'Changed settings';
@@ -170,7 +170,7 @@ export function getDefaultPreferences(userId: string): UserPreferences {
   };
 }
 
-export function validatePreferences(preferences: any): boolean {
+export function validatePreferences(preferences: Record<string, unknown>): boolean {
   const requiredFields = [
     'theme',
     'language',
@@ -193,9 +193,9 @@ export function validatePreferences(preferences: any): boolean {
   }
 
   // Validate enum values
-  if (!validThemes.includes(preferences.theme)) return false;
-  if (!validExportFormats.includes(preferences.exportFormat)) return false;
-  if (!validLayouts.includes(preferences.dashboardLayout)) return false;
+  if (!validThemes.includes(preferences.theme as string)) return false;
+  if (!validExportFormats.includes(preferences.exportFormat as string)) return false;
+  if (!validLayouts.includes(preferences.dashboardLayout as string)) return false;
 
   // Validate boolean fields
   const booleanFields = [

@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { useTheme } from '@/components/theme/theme-provider';
 import { BarChart3, TrendingUp, Package } from 'lucide-react';
 
 interface SoftwareData {
@@ -19,9 +20,23 @@ export default function TopAffectedSoftware({
   data,
   isLoading = false,
 }: TopAffectedSoftwareProps) {
+  const { preferences } = useTheme();
+
+  // Apply user preferences for styling
+  const getFontSizeClass = () => {
+    switch (preferences?.fontSize) {
+      case 'small': return 'text-sm';
+      case 'large': return 'text-lg';
+      default: return 'text-base';
+    }
+  };
+
+  const getHighContrastClass = () => {
+    return preferences?.highContrast ? 'border-2 border-white/40' : '';
+  };
   if (isLoading) {
     return (
-      <Card className="bg-white/5 border-white/10 backdrop-blur-sm">
+      <Card className={`bg-white/5 border-white/10 backdrop-blur-sm ${getHighContrastClass()}`}>
         <CardHeader>
           <CardTitle className="text-white flex items-center space-x-2">
             <BarChart3 className="h-5 w-5 text-indigo-400" />
@@ -94,7 +109,7 @@ export default function TopAffectedSoftware({
   };
 
   return (
-    <Card className="bg-white/5 border-white/10 backdrop-blur-sm">
+    <Card className={`bg-white/5 border-white/10 backdrop-blur-sm ${getHighContrastClass()}`}>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-white flex items-center space-x-2">

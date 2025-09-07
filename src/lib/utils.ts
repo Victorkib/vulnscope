@@ -5,44 +5,98 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatRelativeTime(date: string | Date): string {
+export function formatRelativeTime(date: string | Date, language: string = 'en'): string {
   const now = new Date();
   const targetDate = new Date(date);
   const diffInSeconds = Math.floor(
     (now.getTime() - targetDate.getTime()) / 1000
   );
 
+  // Language-specific translations
+  const translations = {
+    en: {
+      justNow: 'just now',
+      minute: 'minute',
+      minutes: 'minutes',
+      hour: 'hour',
+      hours: 'hours',
+      day: 'day',
+      days: 'days',
+      week: 'week',
+      weeks: 'weeks',
+      month: 'month',
+      months: 'months',
+      year: 'year',
+      years: 'years',
+      ago: 'ago',
+    },
+    es: {
+      justNow: 'ahora mismo',
+      minute: 'minuto',
+      minutes: 'minutos',
+      hour: 'hora',
+      hours: 'horas',
+      day: 'día',
+      days: 'días',
+      week: 'semana',
+      weeks: 'semanas',
+      month: 'mes',
+      months: 'meses',
+      year: 'año',
+      years: 'años',
+      ago: 'atrás',
+    },
+    fr: {
+      justNow: 'à l\'instant',
+      minute: 'minute',
+      minutes: 'minutes',
+      hour: 'heure',
+      hours: 'heures',
+      day: 'jour',
+      days: 'jours',
+      week: 'semaine',
+      weeks: 'semaines',
+      month: 'mois',
+      months: 'mois',
+      year: 'année',
+      years: 'années',
+      ago: 'il y a',
+    },
+  };
+
+  const t = translations[language as keyof typeof translations] || translations.en;
+
   if (diffInSeconds < 60) {
-    return 'just now';
+    return t.justNow;
   }
 
   const diffInMinutes = Math.floor(diffInSeconds / 60);
   if (diffInMinutes < 60) {
-    return `${diffInMinutes} minute${diffInMinutes > 1 ? 's' : ''} ago`;
+    return `${diffInMinutes} ${diffInMinutes > 1 ? t.minutes : t.minute} ${t.ago}`;
   }
 
   const diffInHours = Math.floor(diffInMinutes / 60);
   if (diffInHours < 24) {
-    return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`;
+    return `${diffInHours} ${diffInHours > 1 ? t.hours : t.hour} ${t.ago}`;
   }
 
   const diffInDays = Math.floor(diffInHours / 24);
   if (diffInDays < 7) {
-    return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`;
+    return `${diffInDays} ${diffInDays > 1 ? t.days : t.day} ${t.ago}`;
   }
 
   const diffInWeeks = Math.floor(diffInDays / 7);
   if (diffInWeeks < 4) {
-    return `${diffInWeeks} week${diffInWeeks > 1 ? 's' : ''} ago`;
+    return `${diffInWeeks} ${diffInWeeks > 1 ? t.weeks : t.week} ${t.ago}`;
   }
 
   const diffInMonths = Math.floor(diffInDays / 30);
   if (diffInMonths < 12) {
-    return `${diffInMonths} month${diffInMonths > 1 ? 's' : ''} ago`;
+    return `${diffInMonths} ${diffInMonths > 1 ? t.months : t.month} ${t.ago}`;
   }
 
   const diffInYears = Math.floor(diffInDays / 365);
-  return `${diffInYears} year${diffInYears > 1 ? 's' : ''} ago`;
+  return `${diffInYears} ${diffInYears > 1 ? t.years : t.year} ${t.ago}`;
 }
 
 export function getSeverityBadgeColor(severity: string): string {
@@ -91,7 +145,7 @@ export function generateId(prefix = ''): string {
     : `${timestamp}_${randomStr}`;
 }
 
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number
 ): (...args: Parameters<T>) => void {
@@ -102,7 +156,7 @@ export function debounce<T extends (...args: any[]) => any>(
   };
 }
 
-export function throttle<T extends (...args: any[]) => any>(
+export function throttle<T extends (...args: unknown[]) => unknown>(
   func: T,
   limit: number
 ): (...args: Parameters<T>) => void {

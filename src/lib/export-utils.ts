@@ -1,6 +1,6 @@
 import type { Vulnerability } from '@/types/vulnerability';
 
-export function exportToJSON(data: any[], filename = 'export'): void {
+export function exportToJSON(data: unknown[], filename = 'export'): void {
   const jsonString = JSON.stringify(data, null, 2);
   const blob = new Blob([jsonString], { type: 'application/json' });
   downloadBlob(blob, `${filename}.json`);
@@ -34,7 +34,7 @@ export function exportToCSV(
         `"${vuln.severity}"`,
         vuln.cvssScore,
         `"${vuln.publishedDate}"`,
-        `"${vuln.source}"`,
+        `"${vuln.source || 'Unknown'}"`,
         `"${vuln.affectedSoftware?.join('; ') || ''}"`,
         `"${vuln.cweId || ''}"`,
       ].join(',')
@@ -60,7 +60,7 @@ ${data
     <severity>${escapeXml(vuln.severity)}</severity>
     <cvssScore>${vuln.cvssScore}</cvssScore>
     <publishedDate>${escapeXml(vuln.publishedDate)}</publishedDate>
-    <source>${escapeXml(vuln.source)}</source>
+    <source>${escapeXml(vuln.source || 'Unknown')}</source>
     <affectedSoftware>
 ${
   vuln.affectedSoftware
@@ -119,7 +119,7 @@ export async function exportToPDF(
         <p><strong>Published:</strong> ${new Date(
           vuln.publishedDate
         ).toLocaleDateString()}</p>
-        <p><strong>Source:</strong> ${vuln.source}</p>
+        <p><strong>Source:</strong> ${vuln.source || 'Unknown'}</p>
         <p><strong>Description:</strong> ${
           vuln.description || 'No description available'
         }</p>
@@ -185,7 +185,8 @@ export function getExportStats(data: Vulnerability[]): {
       (stats.bySeverity[vuln.severity] || 0) + 1;
 
     // Count by source
-    stats.bySource[vuln.source] = (stats.bySource[vuln.source] || 0) + 1;
+    const source = vuln.source || 'Unknown';
+    stats.bySource[source] = (stats.bySource[source] || 0) + 1;
   });
 
   return stats;

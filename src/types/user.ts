@@ -39,7 +39,7 @@ export interface UserActivity {
   description: string;
   vulnerabilityId?: string | null;
   timestamp: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   ipAddress?: string;
   userAgent?: string;
   vulnerability?: {
@@ -108,7 +108,7 @@ export interface SavedSearch {
   userId: string;
   name: string;
   description?: string;
-  filters: Record<string, any>;
+  filters: Record<string, unknown>;
   isPublic: boolean;
   createdAt: string;
   lastUsed: string;
@@ -120,7 +120,7 @@ export interface UserAlert {
   userId: string;
   name: string;
   description?: string;
-  filters: Record<string, any>;
+  filters: Record<string, unknown>;
   isActive: boolean;
   notificationMethods: ('email' | 'push' | 'webhook')[];
   webhookUrl?: string;
@@ -245,7 +245,7 @@ export interface ActivityFeedProps {
 }
 
 export interface BookmarksManagerProps {
-  bookmarks: (UserBookmark & { vulnerability: any })[];
+  bookmarks: (UserBookmark & { vulnerability: Record<string, unknown> })[];
   isLoading: boolean;
   onUpdateBookmark: (
     bookmarkId: string,

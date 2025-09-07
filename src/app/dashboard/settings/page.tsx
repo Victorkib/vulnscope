@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '@/components/theme/theme-provider';
 import { useToast } from '@/hooks/use-toast';
+import { useUserPreferences } from '@/hooks/use-api';
 import AppLayout from '@/components/layout/app-layout';
 import {
   Card,
@@ -24,6 +25,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
+import AlertRulesManager from '@/components/alerts/alert-rules-manager';
+import TestAlertButton from '@/components/test/test-alert-button';
+import TeamManager from '@/components/collaboration/team-manager';
 import {
   Settings,
   Bell,
@@ -37,30 +41,51 @@ import {
   RefreshCw,
   Check,
   Accessibility,
+  Users,
 } from 'lucide-react';
 
 export default function SettingsPage() {
-  const { preferences, updatePreference, savePreferences, isDarkMode } =
+  const { preferences: themePreferences, updatePreference, isDarkMode: _isDarkMode } =
     useTheme();
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Use the optimized preferences hook
+  const {
+    preferences,
+    loading: preferencesLoading,
+    error: preferencesError,
+    savePreferences,
+  } = useUserPreferences();
 
   useEffect(() => {
     // Track if there are unsaved changes
     setHasChanges(true);
   }, [preferences]);
 
+  // Handle preferences errors
+  useEffect(() => {
+    if (preferencesError) {
+      toast({
+        title: 'Error',
+        description: 'Failed to load user preferences. Using default settings.',
+        variant: 'destructive',
+      });
+    }
+  }, [preferencesError, toast]);
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      await savePreferences();
+      await savePreferences(preferences);
       setHasChanges(false);
       toast({
         title: 'Settings Saved',
         description: 'Your preferences have been updated successfully.',
       });
     } catch (error) {
+      console.error('Error saving preferences:', error);
       toast({
         title: 'Error',
         description: 'Failed to save settings. Please try again.',
@@ -132,7 +157,7 @@ export default function SettingsPage() {
 
         {/* Settings Tabs */}
         <Tabs defaultValue="appearance" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 lg:grid-cols-6">
+          <TabsList className="grid w-full grid-cols-2 lg:grid-cols-8">
             <TabsTrigger
               value="appearance"
               className="flex items-center space-x-2"
@@ -171,6 +196,20 @@ export default function SettingsPage() {
             >
               <Settings className="w-4 h-4" />
               <span className="hidden sm:inline">Advanced</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="alerts"
+              className="flex items-center space-x-2"
+            >
+              <Shield className="w-4 h-4" />
+              <span className="hidden sm:inline">Alerts</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="teams"
+              className="flex items-center space-x-2"
+            >
+              <Users className="w-4 h-4" />
+              <span className="hidden sm:inline">Teams</span>
             </TabsTrigger>
           </TabsList>
 
@@ -794,6 +833,35 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Alert Rules Settings */}
+          <TabsContent value="alerts" className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                  Alert Rules
+                </h2>
+                <p className="text-gray-600 dark:text-gray-300 mt-1">
+                  Configure custom alerts for vulnerability notifications
+                </p>
+              </div>
+              <TestAlertButton />
+            </div>
+            <AlertRulesManager />
+          </TabsContent>
+
+          {/* Teams Settings */}
+          <TabsContent value="teams" className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                Team Management
+              </h2>
+              <p className="text-gray-600 dark:text-gray-300 mt-1">
+                Create and manage teams for collaborative vulnerability research
+              </p>
+            </div>
+            <TeamManager />
           </TabsContent>
         </Tabs>
 

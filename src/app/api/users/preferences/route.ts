@@ -49,7 +49,7 @@ const getDefaultPreferences = (userId: string): UserPreferences => ({
   updatedAt: new Date().toISOString(),
 });
 
-const validatePreferences = (preferences: any): boolean => {
+const validatePreferences = (preferences: Record<string, unknown>): boolean => {
   const requiredFields = [
     'theme',
     'language',
@@ -82,7 +82,7 @@ export async function GET() {
     }
 
     // Remove MongoDB _id field from response
-    const { _id, ...cleanPreferences } = preferences;
+    const { _id: _, ...cleanPreferences } = preferences;
     return NextResponse.json(cleanPreferences);
   } catch (error) {
     console.error('Error fetching user preferences:', error);

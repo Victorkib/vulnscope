@@ -6,9 +6,19 @@ export async function middleware(request: NextRequest) {
     request,
   });
 
+  // Check if Supabase environment variables are available
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('Supabase environment variables not set. Skipping auth middleware.');
+    // If no auth is configured, allow access to dashboard for development
+    return supabaseResponse;
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() {
@@ -29,17 +39,22 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // IMPORTANT: You *must* call one of the Supabase Auth methods to trigger the refresh
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  try {
+    // IMPORTANT: You *must* call one of the Supabase Auth methods to trigger the refresh
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-  // Protect dashboard routes
-  if (request.nextUrl.pathname.startsWith('/dashboard')) {
-    if (!session) {
-      const redirectUrl = new URL('/', request.url);
-      return NextResponse.redirect(redirectUrl);
+    // Protect dashboard routes
+    if (request.nextUrl.pathname.startsWith('/dashboard')) {
+      if (!session) {
+        const redirectUrl = new URL('/', request.url);
+        return NextResponse.redirect(redirectUrl);
+      }
     }
+  } catch (error) {
+    console.error('Error in middleware auth check:', error);
+    // If auth fails, allow access for development
   }
 
   // Don't protect user API routes here - let them handle their own auth

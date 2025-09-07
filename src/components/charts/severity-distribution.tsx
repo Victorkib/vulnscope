@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { useTheme } from '@/components/theme/theme-provider';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -24,7 +25,7 @@ import {
   Zap,
 } from 'lucide-react';
 
-interface SeverityData {
+interface _SeverityData {
   severity: string;
   count: number;
   percentage: number;
@@ -90,6 +91,20 @@ export default function SeverityDistribution({
   const [viewMode, setViewMode] = useState<'percentage' | 'count'>(
     'percentage'
   );
+  const { preferences } = useTheme();
+
+  // Apply user preferences for styling
+  const getFontSizeClass = () => {
+    switch (preferences?.fontSize) {
+      case 'small': return 'text-sm';
+      case 'large': return 'text-lg';
+      default: return 'text-base';
+    }
+  };
+
+  const getHighContrastClass = () => {
+    return preferences?.highContrast ? 'border-2 border-white/40' : '';
+  };
 
   // Safely handle undefined/null data
   const safeData = useMemo(
@@ -147,7 +162,7 @@ export default function SeverityDistribution({
 
   const riskAssessment = getRiskLevel(riskScore);
 
-  const onPieEnter = (_: any, index: number) => {
+  const onPieEnter = (_: unknown, index: number) => {
     if (interactive) {
       setActiveIndex(index);
     }
@@ -159,7 +174,7 @@ export default function SeverityDistribution({
     }
   };
 
-  const CustomTooltip = ({ active, payload }: any) => {
+  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ payload: Record<string, unknown> }> }) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
@@ -167,23 +182,23 @@ export default function SeverityDistribution({
           <div className="flex items-center space-x-2 mb-2">
             <div
               className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: data.color }}
+              style={{ backgroundColor: data.color as string }}
             />
-            <span className="font-semibold text-gray-900">{data.severity}</span>
+            <span className="font-semibold text-gray-900">{data.severity as string}</span>
           </div>
           <div className="space-y-1 text-sm">
             <div>
-              Count: <span className="font-medium">{data.count}</span>
+              Count: <span className="font-medium">{String(data.count)}</span>
             </div>
             <div>
               Percentage:{' '}
-              <span className="font-medium">{data.percentage}%</span>
+              <span className="font-medium">{String(data.percentage)}%</span>
             </div>
             <div>
-              Risk Level: <span className="font-medium">{data.riskLevel}</span>
+              Risk Level: <span className="font-medium">{String(data.riskLevel)}</span>
             </div>
             <div>
-              Avg CVSS: <span className="font-medium">{data.avgCvss}</span>
+              Avg CVSS: <span className="font-medium">{String(data.avgCvss)}</span>
             </div>
           </div>
         </div>
@@ -199,8 +214,9 @@ export default function SeverityDistribution({
     innerRadius,
     outerRadius,
     percent,
-  }: any) => {
-    if (percent < 0.05) return null; // Don't show labels for very small slices
+  }: { cx?: number; cy?: number; midAngle?: number; innerRadius?: number; outerRadius?: number; percent?: number }) => {
+    if (!percent || percent < 0.05) return null; // Don't show labels for very small slices
+    if (!cx || !cy || !midAngle || !innerRadius || !outerRadius) return null;
 
     const RADIAN = Math.PI / 180;
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
@@ -223,7 +239,7 @@ export default function SeverityDistribution({
 
   if (isLoading) {
     return (
-      <Card className="border-0 shadow-lg">
+      <Card className={`border-0 shadow-lg ${getHighContrastClass()}`}>
         <CardHeader>
           <div className="flex items-center space-x-2">
             <div className="w-5 h-5 bg-gray-200 rounded animate-pulse" />
@@ -238,7 +254,7 @@ export default function SeverityDistribution({
   }
 
   return (
-    <Card className="border-0 shadow-lg">
+    <Card className={`border-0 shadow-lg ${getHighContrastClass()}`}>
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">

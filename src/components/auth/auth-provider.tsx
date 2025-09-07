@@ -40,6 +40,13 @@ export default function AuthProvider({
   useEffect(() => {
     const getInitialSession = async () => {
       try {
+        if (!supabase) {
+          console.warn('Supabase client not initialized. Skipping auth session check.');
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+
         const {
           data: { session },
           error,
@@ -61,28 +68,37 @@ export default function AuthProvider({
 
     getInitialSession();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session?.user?.email);
+    if (supabase) {
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange(async (event, session) => {
+        console.log('Auth state changed:', event, session?.user?.email);
 
-      setUser(session?.user ?? null);
+        setUser(session?.user ?? null);
+        setLoading(false);
+
+        if (event === 'SIGNED_OUT' || !session) {
+          router.push('/');
+        } else if (event === 'SIGNED_IN' && pathname === '/') {
+          router.push('/dashboard');
+        }
+      });
+
+      return () => {
+        subscription.unsubscribe();
+      };
+    } else {
+      // If supabase is not available, just set loading to false
       setLoading(false);
-
-      if (event === 'SIGNED_OUT' || !session) {
-        router.push('/');
-      } else if (event === 'SIGNED_IN' && pathname === '/') {
-        router.push('/dashboard');
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+    }
   }, [router, pathname]);
 
   const signOut = async () => {
     try {
+      if (!supabase) {
+        console.warn('Supabase client not initialized. Cannot sign out.');
+        return;
+      }
       const { error } = await supabase.auth.signOut();
       if (error) {
         console.error('Error signing out:', error);

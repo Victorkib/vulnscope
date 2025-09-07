@@ -77,10 +77,10 @@ export async function GET(request: Request) {
 
     const trends = trendData.map((item) => ({
       date: item._id,
-      critical: item.critical,
-      high: item.high,
-      medium: item.medium,
-      low: item.low,
+      CRITICAL: item.critical,
+      HIGH: item.high,
+      MEDIUM: item.medium,
+      LOW: item.low,
       total: item.total,
     }));
 

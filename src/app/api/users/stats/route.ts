@@ -20,7 +20,7 @@ export async function GET() {
     // Get comprehensive user statistics
     const [
       bookmarksCount,
-      totalActivity,
+      _totalActivity,
       activityByType,
       recentActivity,
       bookmarksByPriority,

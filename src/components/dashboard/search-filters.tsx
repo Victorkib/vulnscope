@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { useTheme } from '@/components/theme/theme-provider';
 import {
   Collapsible,
   CollapsibleContent,
@@ -34,19 +35,24 @@ import {
   Settings,
 } from 'lucide-react';
 
+interface Filters {
+  searchText: string;
+  severities: string[];
+  cvssRange: [number, number];
+  dateRange: { from: Date; to: Date } | undefined;
+  affectedSoftware: string[];
+  sources: string[];
+  exploitAvailable?: boolean;
+  patchAvailable?: boolean;
+  kev?: boolean;
+  trending?: boolean;
+  category?: string[];
+  tags?: string[];
+}
+
 interface SearchFiltersProps {
-  filters: {
-    searchText: string;
-    severities: string[];
-    cvssRange: [number, number];
-    dateRange?: {
-      from: Date;
-      to: Date;
-    };
-    affectedSoftware: string[];
-    sources: string[];
-  };
-  onFiltersChange: (filters: any) => void;
+  filters: Filters;
+  onFiltersChange: (filters: Filters) => void;
   onExport: (format: 'json' | 'csv' | 'pdf') => void;
   isLoading?: boolean;
 }
@@ -99,16 +105,35 @@ const POPULAR_SOFTWARE = [
   'Angular',
 ];
 
+const CATEGORY_OPTIONS = [
+  { value: 'Web Application', label: 'Web Application' },
+  { value: 'Operating System', label: 'Operating System' },
+  { value: 'Network', label: 'Network' },
+  { value: 'Database', label: 'Database' },
+  { value: 'Mobile', label: 'Mobile' },
+  { value: 'IoT', label: 'IoT' },
+  { value: 'Cloud', label: 'Cloud' },
+  { value: 'Cryptography', label: 'Cryptography' },
+];
+
+const TAG_OPTIONS = [
+  'RCE', 'XSS', 'SQL Injection', 'CSRF', 'Privilege Escalation',
+  'Information Disclosure', 'Denial of Service', 'Code Execution',
+  'Authentication Bypass', 'Directory Traversal', 'Buffer Overflow',
+  'Memory Corruption', 'Injection', 'Deserialization', 'SSRF'
+];
+
 export default function SearchFilters({
   filters,
   onFiltersChange,
   onExport,
-  isLoading = false,
+  isLoading: _isLoading = false,
 }: SearchFiltersProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [customSoftware, setCustomSoftware] = useState('');
+  const { preferences } = useTheme();
 
-  const updateFilters = (key: string, value: any) => {
+  const updateFilters = (key: string, value: unknown) => {
     onFiltersChange({
       ...filters,
       [key]: value,
@@ -149,6 +174,20 @@ export default function SearchFilters({
     }
   };
 
+  const toggleCategory = (category: string) => {
+    const newCategories = (filters.category || []).includes(category)
+      ? (filters.category || []).filter((c) => c !== category)
+      : [...(filters.category || []), category];
+    updateFilters('category', newCategories);
+  };
+
+  const toggleTag = (tag: string) => {
+    const newTags = (filters.tags || []).includes(tag)
+      ? (filters.tags || []).filter((t) => t !== tag)
+      : [...(filters.tags || []), tag];
+    updateFilters('tags', newTags);
+  };
+
   const clearAllFilters = () => {
     onFiltersChange({
       searchText: '',
@@ -157,6 +196,12 @@ export default function SearchFilters({
       dateRange: undefined,
       affectedSoftware: [],
       sources: [],
+      exploitAvailable: undefined,
+      patchAvailable: undefined,
+      kev: undefined,
+      trending: undefined,
+      category: [],
+      tags: [],
     });
   };
 
@@ -168,11 +213,30 @@ export default function SearchFilters({
     if (filters.affectedSoftware.length > 0) count++;
     if (filters.cvssRange[0] > 0 || filters.cvssRange[1] < 10) count++;
     if (filters.dateRange) count++;
+    if (filters.exploitAvailable !== undefined) count++;
+    if (filters.patchAvailable !== undefined) count++;
+    if (filters.kev !== undefined) count++;
+    if (filters.trending !== undefined) count++;
+    if ((filters.category || []).length > 0) count++;
+    if ((filters.tags || []).length > 0) count++;
     return count;
   };
 
+  // Apply user preferences for styling
+  const getFontSizeClass = () => {
+    switch (preferences?.fontSize) {
+      case 'small': return 'text-sm';
+      case 'large': return 'text-lg';
+      default: return 'text-base';
+    }
+  };
+
+  const getHighContrastClass = () => {
+    return preferences?.highContrast ? 'border-2 border-white/40' : '';
+  };
+
   return (
-    <Card className="bg-white/5 border-white/10 backdrop-blur-sm">
+    <Card className={`bg-white/5 border-white/10 backdrop-blur-sm ${getHighContrastClass()}`}>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="text-white flex items-center space-x-2">
@@ -223,7 +287,7 @@ export default function SearchFilters({
               placeholder="Search by CVE ID, title, or description..."
               value={filters.searchText}
               onChange={(e) => updateFilters('searchText', e.target.value)}
-              className="pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40"
+              className={`pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40 ${getFontSizeClass()}`}
             />
           </div>
         </div>
@@ -438,6 +502,116 @@ export default function SearchFilters({
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Advanced Filters */}
+            <div className="space-y-4">
+              <Label className="text-white/80 flex items-center space-x-2">
+                <Settings className="h-4 w-4" />
+                <span>Advanced Filters</span>
+              </Label>
+
+              {/* Exploit & Patch Status */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="exploitAvailable"
+                    checked={filters.exploitAvailable === true}
+                    onChange={(e) => updateFilters('exploitAvailable', e.target.checked ? true : undefined)}
+                    className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
+                  />
+                  <Label htmlFor="exploitAvailable" className="text-white/80 text-sm">
+                    Exploit Available
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="patchAvailable"
+                    checked={filters.patchAvailable === true}
+                    onChange={(e) => updateFilters('patchAvailable', e.target.checked ? true : undefined)}
+                    className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
+                  />
+                  <Label htmlFor="patchAvailable" className="text-white/80 text-sm">
+                    Patch Available
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="kev"
+                    checked={filters.kev === true}
+                    onChange={(e) => updateFilters('kev', e.target.checked ? true : undefined)}
+                    className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
+                  />
+                  <Label htmlFor="kev" className="text-white/80 text-sm">
+                    Known Exploited (KEV)
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="trending"
+                    checked={filters.trending === true}
+                    onChange={(e) => updateFilters('trending', e.target.checked ? true : undefined)}
+                    className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
+                  />
+                  <Label htmlFor="trending" className="text-white/80 text-sm">
+                    Trending
+                  </Label>
+                </div>
+              </div>
+
+              {/* Category Filter */}
+              <div className="space-y-3">
+                <Label className="text-white/80 text-sm">Categories</Label>
+                <div className="flex flex-wrap gap-2">
+                  {CATEGORY_OPTIONS.map((category) => (
+                    <Badge
+                      key={category.value}
+                      variant={
+                        (filters.category || []).includes(category.value)
+                          ? 'default'
+                          : 'outline'
+                      }
+                      className={`cursor-pointer transition-colors ${
+                        (filters.category || []).includes(category.value)
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'
+                      }`}
+                      onClick={() => toggleCategory(category.value)}
+                    >
+                      {category.label}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tags Filter */}
+              <div className="space-y-3">
+                <Label className="text-white/80 text-sm">Common Tags</Label>
+                <div className="flex flex-wrap gap-2">
+                  {TAG_OPTIONS.map((tag) => (
+                    <Badge
+                      key={tag}
+                      variant={
+                        (filters.tags || []).includes(tag)
+                          ? 'default'
+                          : 'outline'
+                      }
+                      className={`cursor-pointer transition-colors text-xs ${
+                        (filters.tags || []).includes(tag)
+                          ? 'bg-purple-500 text-white'
+                          : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'
+                      }`}
+                      onClick={() => toggleTag(tag)}
+                    >
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
             </div>
           </CollapsibleContent>
         </Collapsible>

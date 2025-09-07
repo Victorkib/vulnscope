@@ -29,13 +29,13 @@ export async function debugAuth() {
         user: userError?.message,
       },
     };
-  } catch (error: any) {
-    console.error('Debug auth error:', error.message);
+  } catch (error: unknown) {
+    console.error('Debug auth error:', error instanceof Error ? error.message : 'Unknown error');
     return {
       session: null,
       user: null,
       errors: {
-        exception: error.message,
+        exception: error instanceof Error ? error.message : 'Unknown error',
       },
     };
   }

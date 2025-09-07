@@ -18,7 +18,7 @@ export const createServerSupabaseClient = cache(async () => {
             cookiesToSet.forEach(({ name, value, options }) => {
               cookieStore.set(name, value, options);
             });
-          } catch (error) {
+          } catch (_error) {
             // The `setAll` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing
             // user sessions.
@@ -45,11 +45,11 @@ export const getServerUser = async () => {
     }
 
     if (!session) {
-      console.error('No session found');
+      console.log('No session found - user not authenticated');
       return { user: null, error: 'No active session' };
     }
 
-    // If we have a session, get the user
+    // Try to get the user from the session
     const {
       data: { user },
       error: userError,
@@ -61,14 +61,15 @@ export const getServerUser = async () => {
     }
 
     if (!user) {
-      console.error('No user found in session');
-      return { user: null, error: 'User not found' };
+      console.log('No user found in session - user not authenticated');
+      return { user: null, error: 'No active session' };
     }
 
+    console.log('Server user found:', user.email);
     return { user, error: null };
-  } catch (error: any) {
-    console.error('Server auth exception:', error.message);
-    return { user: null, error: error.message };
+  } catch (error: unknown) {
+    console.error('Server auth exception:', error instanceof Error ? error.message : 'Unknown error');
+    return { user: null, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 };
 
@@ -91,8 +92,13 @@ export const getServerSession = async () => {
       user: session?.user || null,
       error: null,
     };
-  } catch (error: any) {
-    console.error('Server session exception:', error.message);
-    return { session: null, user: null, error: error.message };
+  } catch (error: unknown) {
+    console.error('Server session exception:', error instanceof Error ? error.message : 'Unknown error');
+    return { session: null, user: null, error: error instanceof Error ? error.message : 'Unknown error' };
   }
+};
+
+// Export a function that returns the supabase client
+export const supabase = async () => {
+  return await createServerSupabaseClient();
 };

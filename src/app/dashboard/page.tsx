@@ -1,15 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useTheme } from '@/components/theme/theme-provider';
+import { useRealtimeData } from '@/hooks/use-realtime-data';
+import RealtimeStatus from '@/components/dashboard/realtime-status';
+import TestNotificationButton from '@/components/test/test-notification-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import AppLayout from '@/components/layout/app-layout';
 import { useToast } from '@/hooks/use-toast';
+import { apiClient } from '@/lib/api-client';
 import type { Vulnerability, VulnerabilityStats } from '@/types/vulnerability';
 import {
   AlertTriangle,
@@ -23,7 +27,6 @@ import {
   Database,
   Clock,
   CheckCircle,
-  RefreshCw,
   Download,
   Plus,
   ArrowUpRight,
@@ -31,7 +34,6 @@ import {
   BarChart3,
   PieChart,
   Calendar,
-  Search,
 } from 'lucide-react';
 
 interface DashboardMetrics {
@@ -50,14 +52,14 @@ interface DashboardMetrics {
 interface QuickAction {
   title: string;
   description: string;
-  icon: any;
+  icon: React.ComponentType<{ className?: string }>;
   color: string;
   href: string;
 }
 
 export default function DashboardPage() {
   const { user } = useAuth();
-  const { preferences } = useTheme();
+  const { preferences, updatePreference } = useTheme();
   const { toast } = useToast();
   const router = useRouter();
 
@@ -77,96 +79,105 @@ export default function DashboardPage() {
   const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
   const [stats, setStats] = useState<VulnerabilityStats>({
     total: 0,
-    critical: 0,
-    high: 0,
-    medium: 0,
-    low: 0,
+    bySeverity: {
+      CRITICAL: 0,
+      HIGH: 0,
+      MEDIUM: 0,
+      LOW: 0,
+    },
+    byCategory: {},
+    withExploits: 0,
+    withPatches: 0,
+    trending: 0,
+    recentlyPublished: 0,
+    lastUpdated: new Date().toISOString(),
   });
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [realtimeEnabled, setRealtimeEnabled] = useState(false);
 
   const quickActions: QuickAction[] = [
     {
-      title: 'Scan Vulnerabilities',
-      description: 'Run a new vulnerability scan',
-      icon: Search,
+      title: 'View Vulnerabilities',
+      description: 'Browse all security vulnerabilities',
+      icon: Database,
       color: 'blue',
-      href: '/vulnerabilities/scan',
+      href: '/vulnerabilities',
     },
     {
-      title: 'Generate Report',
-      description: 'Create security assessment report',
+      title: 'Export Data',
+      description: 'Export vulnerability data',
       icon: Download,
       color: 'green',
-      href: '/reports/generate',
+      href: '/api/vulnerabilities/export?format=csv',
     },
     {
-      title: 'Configure Alerts',
+      title: 'Configure Settings',
       description: 'Set up notification preferences',
       icon: Shield,
       color: 'orange',
       href: '/dashboard/settings',
     },
     {
-      title: 'View Analytics',
-      description: 'Detailed security analytics',
-      icon: BarChart3,
+      title: 'User Profile',
+      description: 'View and manage your profile',
+      icon: Activity,
       color: 'purple',
-      href: '/analytics',
+      href: '/dashboard/user',
     },
   ];
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
+      console.log('Fetching dashboard data...');
       setLoading(true);
-      const [vulnsRes, statsRes] = await Promise.all([
-        fetch('/api/vulnerabilities?limit=10'),
-        fetch('/api/vulnerabilities/stats'),
+      
+      const [vulnsRes, dashboardStatsRes] = await Promise.all([
+        apiClient.get('/api/vulnerabilities?limit=10', { 
+          cache: true, 
+          cacheTTL: 120000 // 2 minutes cache
+        }),
+        apiClient.get('/api/vulnerabilities/dashboard-stats', { 
+          cache: true, 
+          cacheTTL: 300000 // 5 minutes cache
+        }),
       ]);
 
-      if (vulnsRes.ok) {
-        const vulnsData = await vulnsRes.json();
-        setVulnerabilities(vulnsData.vulnerabilities);
-      }
+      console.log('API responses:', { vulnsRes: vulnsRes, dashboardStatsRes: dashboardStatsRes });
 
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setStats(statsData);
+      // Handle vulnerabilities data
+      const vulnsData = vulnsRes;
+      console.log('Vulnerabilities data:', vulnsData);
+      setVulnerabilities(vulnsData.vulnerabilities || []);
 
-        // Calculate metrics
-        const securityScore = Math.max(
-          20,
-          100 -
-            (statsData.bySeverity.critical * 10 +
-              statsData.bySeverity.high * 5 +
-              statsData.bySeverity.medium * 2)
-        );
-        const riskLevel =
-          securityScore >= 80
-            ? 'low'
-            : securityScore >= 60
-            ? 'medium'
-            : securityScore >= 40
-            ? 'high'
-            : 'critical';
-
-        setMetrics({
-          totalVulnerabilities: statsData.total,
-          newToday: Math.floor(Math.random() * 15) + 5,
-          criticalCount: statsData.critical,
-          patchedCount: Math.floor(statsData.total * 0.65),
-          affectedSystems: Math.floor(Math.random() * 500) + 100,
-          securityScore,
-          trendPercentage: Math.floor(Math.random() * 20) - 10,
-          weeklyChange: Math.floor(Math.random() * 30) - 15,
-          monthlyChange: Math.floor(Math.random() * 50) - 25,
-          riskLevel,
+      // Handle dashboard stats data
+      const dashboardData = dashboardStatsRes;
+        console.log('Dashboard stats data:', dashboardData);
+        
+        // Set basic stats for compatibility
+        setStats({
+          total: dashboardData.total || 0,
+          bySeverity: dashboardData.bySeverity || { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 },
+          byCategory: {},
+          withExploits: 0,
+          withPatches: dashboardData.patchedCount || 0,
+          trending: 0,
+          recentlyPublished: dashboardData.newThisMonth || 0,
+          lastUpdated: new Date().toISOString(),
         });
-      }
+
+        // Set real metrics from API data
+        setMetrics({
+          totalVulnerabilities: dashboardData.total || 0,
+          newToday: dashboardData.newToday || 0,
+          criticalCount: dashboardData.bySeverity?.CRITICAL || 0,
+          patchedCount: dashboardData.patchedCount || 0,
+          affectedSystems: dashboardData.affectedSystems || 0,
+          securityScore: dashboardData.securityScore || 0,
+          trendPercentage: dashboardData.trends?.daily || 0,
+          weeklyChange: dashboardData.trends?.weekly || 0,
+          monthlyChange: dashboardData.trends?.monthly || 0,
+          riskLevel: dashboardData.riskLevel || 'medium',
+        });
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       toast({
@@ -174,20 +185,56 @@ export default function DashboardPage() {
         description: 'Failed to load dashboard data',
         variant: 'destructive',
       });
+      // Set default values on error
+      setMetrics({
+        totalVulnerabilities: 0,
+        newToday: 0,
+        criticalCount: 0,
+        patchedCount: 0,
+        affectedSystems: 0,
+        securityScore: 0,
+        trendPercentage: 0,
+        weeklyChange: 0,
+        monthlyChange: 0,
+        riskLevel: 'medium',
+      });
     } finally {
       setLoading(false);
     }
-  };
+  }, [toast]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchDashboardData();
-    setRefreshing(false);
-    toast({
-      title: 'Dashboard Updated',
-      description: 'Latest data has been loaded',
-    });
-  };
+  // Real-time data fetching - now respects user preferences with smart features
+  const { refreshNow, isFetching, lastFetch, isPageVisible, isPaused } = useRealtimeData({
+    fetchFunction: fetchDashboardData,
+    intervalMs: preferences?.refreshInterval || 300000, // Use user preference (default: 5 minutes)
+    enabled: realtimeEnabled,
+    pauseWhenHidden: true, // Pause when tab is not visible
+    smartPolling: false, // Disabled for now, can be enabled later
+    onError: (error) => {
+      console.error('Realtime data fetch error:', error);
+      toast({
+        title: 'Update Error',
+        description: 'Failed to refresh dashboard data',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Sync realtimeEnabled with user preferences
+  useEffect(() => {
+    if (preferences) {
+      setRealtimeEnabled(preferences.autoRefresh);
+    } else {
+      // Use default value if preferences are not loaded yet
+      setRealtimeEnabled(false);
+    }
+  }, [preferences?.autoRefresh, preferences]);
+
+  // Initial data fetch - always fetch data when component mounts
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
+
 
   const getMetricColor = (value: number, isPositive = true) => {
     if (isPositive) {
@@ -260,20 +307,33 @@ export default function DashboardPage() {
               Welcome back, {user?.email?.split('@')[0] || 'Security Expert'}!
             </h1>
             <p className="text-gray-600 dark:text-gray-300 mt-1">
-              Here's your security dashboard overview for today
+              Here&apos;s your security dashboard overview for today
             </p>
           </div>
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center gap-4">
+            <RealtimeStatus
+              isFetching={isFetching}
+              lastFetch={lastFetch}
+              onRefresh={refreshNow}
+              enabled={realtimeEnabled && !isPaused}
+            />
             <Button
               variant="outline"
-              onClick={handleRefresh}
-              disabled={refreshing}
+              size="sm"
+              onClick={() => {
+                const newState = !realtimeEnabled;
+                setRealtimeEnabled(newState);
+                // Update user preferences
+                if (preferences) {
+                  updatePreference('autoRefresh', newState);
+                }
+              }}
             >
-              <RefreshCw
-                className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`}
-              />
-              Refresh
+              {realtimeEnabled ? 'Disable' : 'Enable'} Auto-refresh
             </Button>
+          </div>
+          <div className="flex items-center space-x-3">
+            <TestNotificationButton />
             <Button>
               <Plus className="w-4 h-4 mr-2" />
               New Scan
@@ -583,25 +643,25 @@ export default function DashboardPage() {
                   {[
                     {
                       label: 'Critical',
-                      value: stats.critical,
+                      value: stats.bySeverity.CRITICAL,
                       color: 'bg-red-500',
                       total: stats.total,
                     },
                     {
                       label: 'High',
-                      value: stats.high,
+                      value: stats.bySeverity.HIGH,
                       color: 'bg-orange-500',
                       total: stats.total,
                     },
                     {
                       label: 'Medium',
-                      value: stats.medium,
+                      value: stats.bySeverity.MEDIUM,
                       color: 'bg-yellow-500',
                       total: stats.total,
                     },
                     {
                       label: 'Low',
-                      value: stats.low,
+                      value: stats.bySeverity.LOW,
                       color: 'bg-green-500',
                       total: stats.total,
                     },

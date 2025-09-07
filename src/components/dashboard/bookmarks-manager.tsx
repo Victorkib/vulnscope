@@ -84,7 +84,7 @@ export default function BookmarksManager({
   });
 
   const categories = Array.from(
-    new Set(bookmarks.map((b) => b.category).filter(Boolean))
+    new Set(bookmarks.map((b) => b.vulnerability.category).filter(Boolean))
   );
 
   const filteredAndSortedBookmarks = bookmarks
@@ -96,16 +96,16 @@ export default function BookmarksManager({
         bookmark.vulnerability.title
           .toLowerCase()
           .includes(searchTerm.toLowerCase()) ||
-        bookmark.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        bookmark.vulnerability.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         bookmark.notes?.toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchesCategory =
-        selectedCategory === 'all' || bookmark.category === selectedCategory;
+        selectedCategory === 'all' || bookmark.vulnerability.category === selectedCategory;
 
       return matchesSearch && matchesCategory;
     })
     .sort((a, b) => {
-      let aValue: any, bValue: any;
+      let aValue: unknown, bValue: unknown;
 
       switch (sortField) {
         case 'createdAt':
@@ -175,7 +175,7 @@ export default function BookmarksManager({
     }
   };
 
-  const getSeverityIcon = (severity: string) => {
+  const _getSeverityIcon = (severity: string) => {
     switch (severity) {
       case 'CRITICAL':
         return <AlertTriangle className="h-4 w-4" />;
@@ -195,9 +195,9 @@ export default function BookmarksManager({
   ) => {
     setEditingBookmark(bookmark);
     setEditForm({
-      title: bookmark.title || '',
+      title: bookmark.vulnerability.title || '',
       notes: bookmark.notes || '',
-      category: bookmark.category || '',
+      category: bookmark.vulnerability.category || '',
     });
   };
 
@@ -211,7 +211,7 @@ export default function BookmarksManager({
         title: 'Bookmark Updated',
         description: 'Your bookmark has been successfully updated.',
       });
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: 'Update Failed',
         description: 'Failed to update bookmark. Please try again.',
@@ -227,7 +227,7 @@ export default function BookmarksManager({
         title: 'Bookmark Deleted',
         description: 'Your bookmark has been successfully removed.',
       });
-    } catch (error) {
+    } catch (_error) {
       toast({
         title: 'Delete Failed',
         description: 'Failed to delete bookmark. Please try again.',
@@ -445,7 +445,7 @@ export default function BookmarksManager({
                         ></div>
                         <div>
                           <h4 className="font-semibold text-gray-900 dark:text-white text-lg">
-                            {bookmark.title || bookmark.vulnerability.cveId}
+                            {bookmark.vulnerability.title || bookmark.vulnerability.cveId}
                           </h4>
                           <p className="text-sm text-gray-600 dark:text-gray-400">
                             {bookmark.vulnerability.cveId} •{' '}
@@ -461,9 +461,9 @@ export default function BookmarksManager({
                         >
                           {bookmark.vulnerability.cvssScore}
                         </Badge>
-                        {bookmark.category && (
+                        {bookmark.vulnerability.category && (
                           <Badge variant="outline" className="text-xs">
-                            {bookmark.category}
+                            {bookmark.vulnerability.category}
                           </Badge>
                         )}
                       </div>
@@ -478,7 +478,7 @@ export default function BookmarksManager({
                         {bookmark.notes && (
                           <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                             <p className="text-sm text-blue-800 dark:text-blue-200 italic">
-                              "{bookmark.notes}"
+                              &ldquo;{bookmark.notes}&rdquo;
                             </p>
                           </div>
                         )}

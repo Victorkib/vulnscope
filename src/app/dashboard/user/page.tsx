@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useTheme } from '@/components/theme/theme-provider';
+import { useRealtimeData } from '@/hooks/use-realtime-data';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,6 +12,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import AppLayout from '@/components/layout/app-layout';
 import { useToast } from '@/hooks/use-toast';
+import { useUserData } from '@/hooks/use-api';
 import type { Vulnerability } from '@/types/vulnerability';
 import {
   Plus,
@@ -39,7 +41,7 @@ interface SavedSearch {
   id: string;
   name: string;
   description?: string;
-  filters: any;
+  filters: Record<string, unknown>;
   createdAt: string;
   lastUsed: string;
   useCount: number;
@@ -51,80 +53,58 @@ export default function UserDashboardPage() {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [stats, setStats] = useState<UserStats>({
-    totalBookmarks: 0,
-    totalViews: 0,
-    totalComments: 0,
-    totalSearches: 0,
-    totalExports: 0,
-    totalAlerts: 0,
-    activeAlerts: 0,
-    weeklyActivity: 0,
-    monthlyActivity: 0,
-    favoriteCategories: [],
-    mostViewedSeverity: 'CRITICAL',
-    averageSessionTime: 0,
-  });
-
-  const [activities, setActivities] = useState<UserActivity[]>([]);
-  const [bookmarks, setBookmarks] = useState<
-    (UserBookmark & { vulnerability: Vulnerability })[]
-  >([]);
-  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Use the optimized hook for user data
+  const {
+    stats,
+    activities,
+    bookmarks,
+    savedSearches,
+    loading,
+    error,
+    fetchUserData,
+    updateBookmark,
+    deleteBookmark,
+    logActivity,
+  } = useUserData();
+
+  // Handle errors from the hook
+  useEffect(() => {
+    if (error) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to load user data. Please refresh the page.',
+        variant: 'destructive',
+      });
+    }
+  }, [error, toast]);
+
+  // Auto-refresh functionality
+  const { refreshNow, isFetching, lastFetch } = useRealtimeData({
+    fetchFunction: fetchUserData,
+    intervalMs: preferences?.refreshInterval || 300000, // Use user preference (default: 5 minutes)
+    enabled: preferences?.autoRefresh || false, // Respect user preference
+    pauseWhenHidden: true, // Pause when tab is not visible
+    onError: (error) => {
+      console.error('User dashboard data fetch error:', error);
+      toast({
+        title: 'Update Error',
+        description: 'Failed to refresh user data',
+        variant: 'destructive',
+      });
+    },
+  });
 
   useEffect(() => {
     if (user) {
       fetchUserData();
     }
-  }, [user]);
-
-  const fetchUserData = async () => {
-    try {
-      setLoading(true);
-      const [statsRes, activityRes, bookmarksRes, searchesRes] =
-        await Promise.all([
-          fetch('/api/users/stats'),
-          fetch('/api/users/activity?limit=20'),
-          fetch('/api/users/bookmarks'),
-          fetch('/api/users/saved-searches'),
-        ]);
-
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setStats(statsData);
-      }
-
-      if (activityRes.ok) {
-        const activityData = await activityRes.json();
-        setActivities(activityData);
-      }
-
-      if (bookmarksRes.ok) {
-        const bookmarksData = await bookmarksRes.json();
-        setBookmarks(bookmarksData);
-      }
-
-      if (searchesRes.ok) {
-        const searchesData = await searchesRes.json();
-        setSavedSearches(searchesData);
-      }
-    } catch (error) {
-      console.error('Error fetching user data:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load user data. Please refresh the page.',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [user, fetchUserData]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchUserData();
+    await refreshNow(); // Use the auto-refresh function
     setRefreshing(false);
     toast({
       title: 'Data Refreshed',
@@ -137,61 +117,48 @@ export default function UserDashboardPage() {
     bookmarkId: string,
     updates: Partial<UserBookmark>
   ) => {
-    const response = await fetch(`/api/users/bookmarks/${bookmarkId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to update bookmark');
-    }
-
-    // Refresh bookmarks
-    const bookmarksRes = await fetch('/api/users/bookmarks');
-    if (bookmarksRes.ok) {
-      const bookmarksData = await bookmarksRes.json();
-      setBookmarks(bookmarksData);
+    try {
+      await updateBookmark(bookmarkId, updates);
+      toast({
+        title: 'Bookmark Updated',
+        description: 'Your bookmark has been successfully updated.',
+      });
+    } catch (error) {
+      console.error('Error updating bookmark:', error);
+      toast({
+        title: 'Update Failed',
+        description: 'Failed to update bookmark. Please try again.',
+        variant: 'destructive',
+      });
+      throw error;
     }
   };
 
   const handleDeleteBookmark = async (bookmarkId: string) => {
-    const response = await fetch(`/api/users/bookmarks/${bookmarkId}`, {
-      method: 'DELETE',
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to delete bookmark');
-    }
-
-    // Refresh bookmarks and stats
-    const [bookmarksRes, statsRes] = await Promise.all([
-      fetch('/api/users/bookmarks'),
-      fetch('/api/users/stats'),
-    ]);
-
-    if (bookmarksRes.ok) {
-      const bookmarksData = await bookmarksRes.json();
-      setBookmarks(bookmarksData);
-    }
-
-    if (statsRes.ok) {
-      const statsData = await statsRes.json();
-      setStats(statsData);
+    try {
+      await deleteBookmark(bookmarkId);
+      toast({
+        title: 'Bookmark Deleted',
+        description: 'Your bookmark has been successfully removed.',
+      });
+    } catch (error) {
+      console.error('Error deleting bookmark:', error);
+      toast({
+        title: 'Delete Failed',
+        description: 'Failed to delete bookmark. Please try again.',
+        variant: 'destructive',
+      });
+      throw error;
     }
   };
 
   const handleViewVulnerability = (vulnerabilityId: string) => {
-    // Log view activity
-    fetch('/api/users/activity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'view',
-        description: `Viewed vulnerability ${vulnerabilityId}`,
-        vulnerabilityId,
-        metadata: { source: 'user_dashboard' },
-      }),
+    // Log view activity (non-blocking)
+    logActivity({
+      type: 'view',
+      description: `Viewed vulnerability ${vulnerabilityId}`,
+      vulnerabilityId,
+      metadata: { source: 'user_dashboard' },
     });
 
     router.push(`/vulnerabilities/${vulnerabilityId}`);
@@ -259,7 +226,7 @@ export default function UserDashboardPage() {
                     {user?.email?.split('@')[0] || 'Security Expert'}!
                   </h1>
                   <p className="text-lg text-gray-600 dark:text-gray-300 mb-4">
-                    Here's your personalized vulnerability intelligence
+                    Here&apos;s your personalized vulnerability intelligence
                     dashboard
                   </p>
                   <div className="flex flex-wrap items-center gap-6 text-sm text-gray-500 dark:text-gray-400">

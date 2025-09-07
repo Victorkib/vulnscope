@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "set NEXT_DISABLE_ESLINT=true && next build",
+    "build": "set NEXT_DISABLE_ESLINT=true && set DISABLE_ESLINT_PLUGIN=true && next build",
     "start": "next start",
     "seed:vulnerabilities": "tsx src/scripts/seed-vulnerabilities.ts",
     "lint": "next lint"

@@ -6,6 +6,9 @@ import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useTheme } from '@/components/theme/theme-provider';
+import { useSessionTimeout } from '@/hooks/use-session-timeout';
+import SessionTimeoutWarning from '@/components/auth/session-timeout-warning';
+import NotificationBell from '@/components/notifications/notification-bell';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +53,7 @@ import {
 
 interface NavigationItem {
   title: string;
-  icon: any;
+  icon: React.ComponentType<{ className?: string }>;
   href: string;
   badge?: string;
   children?: NavigationItem[];
@@ -127,7 +130,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const { user, signOut } = useAuth();
   const { preferences, updatePreference, isDarkMode, isLoading } = useTheme();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [notificationCount, setNotificationCount] = useState(3);
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
 
   const isCollapsed = preferences?.sidebarCollapsed || false;
 
@@ -143,6 +146,31 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const handleSignOut = async () => {
     await signOut();
     router.push('/');
+  };
+
+  // Session timeout handling
+  const { extendSession, timeUntilTimeout } = useSessionTimeout({
+    timeoutMinutes: 30,
+    warningMinutes: 5,
+    onWarning: () => setShowTimeoutWarning(true),
+    onTimeout: () => {
+      setShowTimeoutWarning(false);
+      handleSignOut();
+    },
+    enabled: !!user, // Only enable when user is logged in
+  });
+
+  const handleExtendSession = async () => {
+    const success = await extendSession();
+    if (success) {
+      setShowTimeoutWarning(false);
+    }
+    return success;
+  };
+
+  const handleLogoutNow = () => {
+    setShowTimeoutWarning(false);
+    handleSignOut();
   };
 
   const isActive = (href: string) => {
@@ -338,17 +366,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Button>
 
                 {/* Notifications */}
-                <Button variant="ghost" size="sm" className="relative">
-                  <Bell className="w-4 h-4" />
-                  {notificationCount > 0 && (
-                    <Badge
-                      variant="destructive"
-                      className="absolute -top-1 -right-1 w-5 h-5 p-0 text-xs rounded-full flex items-center justify-center"
-                    >
-                      {notificationCount}
-                    </Badge>
-                  )}
-                </Button>
+                <NotificationBell />
 
                 {/* User menu */}
                 <DropdownMenu>
@@ -406,6 +424,15 @@ export default function AppLayout({ children }: AppLayoutProps) {
           {/* Page content */}
           <main className="flex-1">{children}</main>
         </div>
+
+        {/* Session Timeout Warning */}
+        {showTimeoutWarning && (
+          <SessionTimeoutWarning
+            timeRemaining={timeUntilTimeout}
+            onExtendSession={handleExtendSession}
+            onLogout={handleLogoutNow}
+          />
+        )}
       </div>
     </TooltipProvider>
   );

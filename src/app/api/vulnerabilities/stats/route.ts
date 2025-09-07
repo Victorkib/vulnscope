@@ -57,10 +57,10 @@ export async function GET() {
 
     // Format severity stats
     const bySeverity = {
-      critical: severityStats.find((s) => s._id === 'CRITICAL')?.count || 0,
-      high: severityStats.find((s) => s._id === 'HIGH')?.count || 0,
-      medium: severityStats.find((s) => s._id === 'MEDIUM')?.count || 0,
-      low: severityStats.find((s) => s._id === 'LOW')?.count || 0,
+      CRITICAL: severityStats.find((s) => s._id === 'CRITICAL')?.count || 0,
+      HIGH: severityStats.find((s) => s._id === 'HIGH')?.count || 0,
+      MEDIUM: severityStats.find((s) => s._id === 'MEDIUM')?.count || 0,
+      LOW: severityStats.find((s) => s._id === 'LOW')?.count || 0,
     };
 
     // Format source stats

@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useTheme } from '@/components/theme/theme-provider';
+import { useRealtimeData } from '@/hooks/use-realtime-data';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import AppLayout from '@/components/layout/app-layout';
 import { useToast } from '@/hooks/use-toast';
+import { apiClient } from '@/lib/api-client';
 import type { Vulnerability, VulnerabilityStats } from '@/types/vulnerability';
 import SearchFilters from '@/components/dashboard/search-filters';
 import VulnerabilityTable from '@/components/dashboard/vulnerability-table';
@@ -37,10 +39,10 @@ import {
 
 interface TrendData {
   date: string;
-  critical: number;
-  high: number;
-  medium: number;
-  low: number;
+  CRITICAL: number;
+  HIGH: number;
+  MEDIUM: number;
+  LOW: number;
 }
 
 interface SoftwareData {
@@ -59,19 +61,43 @@ interface PaginationData {
   endIndex: number;
 }
 
+interface Filters {
+  searchText: string;
+  severities: string[];
+  cvssRange: [number, number];
+  dateRange: { from: Date; to: Date } | undefined;
+  affectedSoftware: string[];
+  sources: string[];
+  exploitAvailable?: boolean;
+  patchAvailable?: boolean;
+  kev?: boolean;
+  trending?: boolean;
+  category?: string[];
+  tags?: string[];
+}
+
 export default function VulnerabilitiesPage() {
-  const { user } = useAuth();
+  const { user: _user } = useAuth();
   const { preferences } = useTheme();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+
+  // Apply user preferences for layout
+  const getLayoutClass = () => {
+    switch (preferences?.dashboardLayout) {
+      case 'compact': return 'space-y-4';
+      case 'spacious': return 'space-y-8';
+      default: return 'space-y-6';
+    }
+  };
 
   const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
   const [pagination, setPagination] = useState<PaginationData>({
     currentPage: 1,
     totalPages: 1,
     totalCount: 0,
-    limit: 25,
+    limit: preferences?.maxResultsPerPage || 25,
     hasNext: false,
     hasPrev: false,
     startIndex: 1,
@@ -94,70 +120,173 @@ export default function VulnerabilitiesPage() {
   const [error, setError] = useState<string | null>(null);
   const [sortField, setSortField] = useState('publishedDate');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<Filters>({
     searchText: '',
-    severities: [] as string[],
+    severities: preferences?.defaultSeverityFilter || [],
     cvssRange: [0, 10] as [number, number],
     dateRange: undefined as { from: Date; to: Date } | undefined,
     affectedSoftware: [] as string[],
     sources: [] as string[],
+    exploitAvailable: undefined,
+    patchAvailable: undefined,
+    kev: undefined,
+    trending: undefined,
+    category: [],
+    tags: [],
   });
 
   // Initialize from URL params
   useEffect(() => {
     const page = Number.parseInt(searchParams.get('page') || '1');
-    const limit = Number.parseInt(searchParams.get('limit') || '25');
+    const limit = Number.parseInt(searchParams.get('limit') || (preferences?.maxResultsPerPage || 25).toString());
     const sort = searchParams.get('sort') || 'publishedDate';
     const order = (searchParams.get('order') || 'desc') as 'asc' | 'desc';
+
+    // Initialize filters from URL params
+    const searchText = searchParams.get('search') || '';
+    const severities = searchParams.get('severities')?.split(',').filter(Boolean) || [];
+    const cvssMin = Number.parseFloat(searchParams.get('cvssMin') || '0');
+    const cvssMax = Number.parseFloat(searchParams.get('cvssMax') || '10');
+    const affectedSoftware = searchParams.get('affectedSoftware')?.split(',').filter(Boolean) || [];
+    const sources = searchParams.get('sources')?.split(',').filter(Boolean) || [];
+    const dateFrom = searchParams.get('dateFrom');
+    const dateTo = searchParams.get('dateTo');
+    const exploitAvailable = searchParams.get('exploitAvailable') === 'true' ? true : undefined;
+    const patchAvailable = searchParams.get('patchAvailable') === 'true' ? true : undefined;
+    const kev = searchParams.get('kev') === 'true' ? true : undefined;
+    const trending = searchParams.get('trending') === 'true' ? true : undefined;
+    const category = searchParams.get('category')?.split(',').filter(Boolean) || [];
+    const tags = searchParams.get('tags')?.split(',').filter(Boolean) || [];
 
     setPagination((prev) => ({ ...prev, currentPage: page, limit }));
     setSortField(sort);
     setSortDirection(order);
+    
+    // Set filters from URL
+    setFilters({
+      searchText,
+      severities,
+      cvssRange: [cvssMin, cvssMax],
+      dateRange: dateFrom && dateTo ? {
+        from: new Date(dateFrom),
+        to: new Date(dateTo)
+      } : undefined,
+      affectedSoftware,
+      sources,
+      exploitAvailable,
+      patchAvailable,
+      kev,
+      trending,
+      category,
+      tags,
+    });
   }, [searchParams]);
-
-  useEffect(() => {
-    fetchAllData();
-  }, [
-    pagination.currentPage,
-    pagination.limit,
-    sortField,
-    sortDirection,
-    filters,
-  ]);
 
   const updateURL = (
     page: number,
     limit: number,
     sort: string,
-    order: string
+    order: string,
+    currentFilters: Filters = filters
   ) => {
     const params = new URLSearchParams();
     if (page > 1) params.set('page', page.toString());
-    if (limit !== 25) params.set('limit', limit.toString());
+    if (limit !== (preferences?.maxResultsPerPage || 25)) params.set('limit', limit.toString());
     if (sort !== 'publishedDate') params.set('sort', sort);
     if (order !== 'desc') params.set('order', order);
+
+    // Add filter parameters
+    if (currentFilters.searchText) params.set('search', currentFilters.searchText);
+    if (currentFilters.severities.length > 0) params.set('severities', currentFilters.severities.join(','));
+    if (currentFilters.cvssRange[0] > 0 || currentFilters.cvssRange[1] < 10) {
+      params.set('cvssMin', currentFilters.cvssRange[0].toString());
+      params.set('cvssMax', currentFilters.cvssRange[1].toString());
+    }
+    if (currentFilters.affectedSoftware.length > 0) params.set('affectedSoftware', currentFilters.affectedSoftware.join(','));
+    if (currentFilters.sources.length > 0) params.set('sources', currentFilters.sources.join(','));
+    if (currentFilters.dateRange) {
+      params.set('dateFrom', currentFilters.dateRange.from.toISOString().split('T')[0]);
+      params.set('dateTo', currentFilters.dateRange.to.toISOString().split('T')[0]);
+    }
 
     const newURL = params.toString() ? `?${params.toString()}` : '';
     window.history.replaceState({}, '', `/vulnerabilities${newURL}`);
   };
 
-  const fetchAllData = async () => {
+  const fetchAllData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const queryParams = buildQueryString();
+      
+      // Build query string inline to avoid dependency issues
+      const params = new URLSearchParams();
 
-      const [vulnsRes, statsRes, trendsRes, softwareRes] = await Promise.all([
-        fetch(`/api/vulnerabilities?${queryParams}`, {
-          signal: AbortSignal.timeout(30000), // 30 second timeout
+      // Pagination
+      params.append('page', pagination.currentPage.toString());
+      params.append('limit', pagination.limit.toString());
+
+      // Sorting
+      params.append('sortBy', sortField);
+      params.append('sortOrder', sortDirection);
+
+      // Filters
+      if (filters.searchText) params.append('search', filters.searchText);
+      if (filters.severities.length > 0)
+        params.append('severities', filters.severities.join(','));
+      if (filters.cvssRange[0] > 0 || filters.cvssRange[1] < 10) {
+        params.append('cvssMin', filters.cvssRange[0].toString());
+        params.append('cvssMax', filters.cvssRange[1].toString());
+      }
+      if (filters.affectedSoftware.length > 0)
+        params.append('affectedSoftware', filters.affectedSoftware.join(','));
+      if (filters.sources.length > 0)
+        params.append('sources', filters.sources.join(','));
+      if (filters.dateRange) {
+        params.append(
+          'dateFrom',
+          filters.dateRange.from.toISOString().split('T')[0]
+        );
+        params.append('dateTo', filters.dateRange.to.toISOString().split('T')[0]);
+      }
+      if (filters.exploitAvailable !== undefined)
+        params.append('exploitAvailable', filters.exploitAvailable.toString());
+      if (filters.patchAvailable !== undefined)
+        params.append('patchAvailable', filters.patchAvailable.toString());
+      if (filters.kev !== undefined)
+        params.append('kev', filters.kev.toString());
+      if (filters.trending !== undefined)
+        params.append('trending', filters.trending.toString());
+      if ((filters.category || []).length > 0)
+        params.append('category', (filters.category || []).join(','));
+      if ((filters.tags || []).length > 0)
+        params.append('tags', (filters.tags || []).join(','));
+
+      const queryParams = params.toString();
+
+      // Use Promise.allSettled to handle partial failures gracefully
+      const [vulnsResult, statsResult, trendsResult, softwareResult] = await Promise.allSettled([
+        apiClient.get(`/api/vulnerabilities?${queryParams}`, { 
+          cache: true, 
+          cacheTTL: 120000, // 2 minutes cache
+          timeout: 30000 
         }),
-        fetch('/api/vulnerabilities/stats'),
-        fetch('/api/vulnerabilities/trends'),
-        fetch('/api/vulnerabilities/top-software'),
+        apiClient.get('/api/vulnerabilities/stats', { 
+          cache: true, 
+          cacheTTL: 300000 // 5 minutes cache
+        }),
+        apiClient.get('/api/vulnerabilities/trends', { 
+          cache: true, 
+          cacheTTL: 600000 // 10 minutes cache
+        }),
+        apiClient.get('/api/vulnerabilities/top-software', { 
+          cache: true, 
+          cacheTTL: 600000 // 10 minutes cache
+        }),
       ]);
 
-      if (vulnsRes.ok) {
-        const vulnsData = await vulnsRes.json();
+      // Handle vulnerabilities data
+      if (vulnsResult.status === 'fulfilled') {
+        const vulnsData = vulnsResult.value;
         setVulnerabilities(vulnsData.vulnerabilities || []);
         setPagination(vulnsData.pagination || pagination);
 
@@ -166,26 +295,33 @@ export default function VulnerabilitiesPage() {
           vulnsData.pagination.currentPage,
           vulnsData.pagination.limit,
           sortField,
-          sortDirection
+          sortDirection,
+          filters
         );
       } else {
-        const errorData = await vulnsRes.json();
-        throw new Error(errorData.message || `HTTP ${vulnsRes.status}`);
+        console.error('Failed to fetch vulnerabilities:', vulnsResult.reason);
+        throw vulnsResult.reason;
       }
 
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setStats(statsData);
+      // Handle stats data
+      if (statsResult.status === 'fulfilled') {
+        setStats(statsResult.value);
+      } else {
+        console.error('Failed to fetch stats:', statsResult.reason);
       }
 
-      if (trendsRes.ok) {
-        const trendsData = await trendsRes.json();
-        setTrendData(trendsData);
+      // Handle trends data
+      if (trendsResult.status === 'fulfilled') {
+        setTrendData(trendsResult.value);
+      } else {
+        console.error('Failed to fetch trends:', trendsResult.reason);
       }
 
-      if (softwareRes.ok) {
-        const softwareData = await softwareRes.json();
-        setSoftwareData(softwareData);
+      // Handle software data
+      if (softwareResult.status === 'fulfilled') {
+        setSoftwareData(softwareResult.value);
+      } else {
+        console.error('Failed to fetch software data:', softwareResult.reason);
       }
     } catch (error) {
       console.error('Error fetching vulnerabilities data:', error);
@@ -214,55 +350,68 @@ export default function VulnerabilitiesPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [toast, pagination, sortField, sortDirection, filters]);
 
-  const buildQueryString = () => {
-    const params = new URLSearchParams();
+  // Auto-refresh functionality
+  const { refreshNow, isFetching, lastFetch } = useRealtimeData({
+    fetchFunction: fetchAllData,
+    intervalMs: preferences?.refreshInterval || 300000, // Use user preference (default: 5 minutes)
+    enabled: preferences?.autoRefresh || false, // Respect user preference
+    pauseWhenHidden: true, // Pause when tab is not visible
+    onError: (error) => {
+      console.error('Vulnerabilities data fetch error:', error);
+      toast({
+        title: 'Update Error',
+        description: 'Failed to refresh vulnerability data',
+        variant: 'destructive',
+      });
+    },
+  });
 
-    // Pagination
-    params.append('page', pagination.currentPage.toString());
-    params.append('limit', pagination.limit.toString());
-
-    // Sorting
-    params.append('sortBy', sortField);
-    params.append('sortOrder', sortDirection);
-
-    // Filters
-    if (filters.searchText) params.append('search', filters.searchText);
-    if (filters.severities.length > 0)
-      params.append('severities', filters.severities.join(','));
-    if (filters.cvssRange[0] > 0 || filters.cvssRange[1] < 10) {
-      params.append('cvssMin', filters.cvssRange[0].toString());
-      params.append('cvssMax', filters.cvssRange[1].toString());
-    }
-    if (filters.affectedSoftware.length > 0)
-      params.append('affectedSoftware', filters.affectedSoftware.join(','));
-    if (filters.sources.length > 0)
-      params.append('sources', filters.sources.join(','));
-    if (filters.dateRange) {
-      params.append(
-        'dateFrom',
-        filters.dateRange.from.toISOString().split('T')[0]
-      );
-      params.append('dateTo', filters.dateRange.to.toISOString().split('T')[0]);
-    }
-
-    return params.toString();
-  };
+  useEffect(() => {
+    fetchAllData();
+  }, [
+    pagination.currentPage,
+    pagination.limit,
+    sortField,
+    sortDirection,
+    filters,
+  ]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchAllData();
+    await refreshNow(); // Use the auto-refresh function
     toast({
       title: 'Data Refreshed',
       description: 'Vulnerability data has been updated',
     });
   };
 
-  const handleFiltersChange = (newFilters: any) => {
+  const handleFiltersChange = (newFilters: Filters) => {
     setFilters(newFilters);
     // Reset to first page when filters change
     setPagination((prev) => ({ ...prev, currentPage: 1 }));
+    // Update URL with new filters
+    updateURL(1, pagination.limit, sortField, sortDirection, newFilters);
+  };
+
+  const handleVulnerabilityFilter = (vulnFilter: Record<string, unknown>) => {
+    // Convert VulnerabilityFilter to Filters format
+    const newFilters: Filters = {
+      searchText: (vulnFilter.query as string) || '',
+      severities: (vulnFilter.severity as string[]) || [],
+      cvssRange: vulnFilter.cvssScore ? [
+        (vulnFilter.cvssScore as { min: number; max: number }).min, 
+        (vulnFilter.cvssScore as { min: number; max: number }).max
+      ] : [0, 10],
+      dateRange: vulnFilter.dateRange ? {
+        from: new Date((vulnFilter.dateRange as { start: string; end: string }).start),
+        to: new Date((vulnFilter.dateRange as { start: string; end: string }).end)
+      } : undefined,
+      affectedSoftware: (vulnFilter.affectedSoftware as string[]) || [],
+      sources: (vulnFilter.sources as string[]) || [],
+    };
+    handleFiltersChange(newFilters);
   };
 
   const handlePageChange = (page: number) => {
@@ -285,10 +434,8 @@ export default function VulnerabilitiesPage() {
       switch (action) {
         case 'bookmark':
           for (const cveId of selected) {
-            await fetch('/api/users/bookmarks', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ vulnerabilityId: cveId }),
+            await apiClient.post('/api/users/bookmarks', {
+              vulnerabilityId: cveId,
             });
           }
           toast({
@@ -297,7 +444,7 @@ export default function VulnerabilitiesPage() {
           });
           break;
         case 'export':
-          await handleExport('csv', selected);
+          await handleExport(preferences?.exportFormat || 'csv', selected);
           break;
         case 'share':
           const shareText = selected
@@ -327,6 +474,7 @@ export default function VulnerabilitiesPage() {
     try {
       const response = await fetch('/api/vulnerabilities/export', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           format,
@@ -349,6 +497,8 @@ export default function VulnerabilitiesPage() {
           title: 'Export Complete',
           description: `Vulnerabilities exported as ${format.toUpperCase()}`,
         });
+      } else {
+        throw new Error('Export failed');
       }
     } catch (error) {
       console.error('Export error:', error);
@@ -400,7 +550,7 @@ export default function VulnerabilitiesPage() {
 
   return (
     <AppLayout>
-      <div className="p-6 space-y-6 max-w-[1800px] mx-auto">
+      <div className={`p-6 max-w-[1800px] mx-auto ${getLayoutClass()}`}>
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between space-y-4 lg:space-y-0">
           <div>
@@ -441,7 +591,7 @@ export default function VulnerabilitiesPage() {
               />
               Refresh
             </Button>
-            <Button variant="outline" onClick={() => handleExport('csv')}>
+            <Button variant="outline" onClick={() => handleExport(preferences?.exportFormat || 'csv')}>
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
@@ -462,7 +612,7 @@ export default function VulnerabilitiesPage() {
                     Critical Threats
                   </p>
                   <p className="text-3xl font-bold text-red-900 dark:text-red-100">
-                    {stats.bySeverity.critical}
+                    {stats.bySeverity.CRITICAL}
                   </p>
                   <p className="text-xs text-red-600 dark:text-red-400 mt-1">
                     {quickStats.criticalPercentage}% of total
@@ -581,10 +731,19 @@ export default function VulnerabilitiesPage() {
                   isLoading={loading}
                   error={error}
                   onRetry={fetchAllData}
-                  onSelectionChange={(selected) => {}}
+                  onSelectionChange={(_selected) => {}}
                   onBulkAction={handleBulkAction}
                   sortField={sortField}
                   sortDirection={sortDirection}
+                  onSort={handleSortChange}
+                  onFilter={handleVulnerabilityFilter}
+                  onBookmark={(vulnerabilityId) => {
+                    // TODO: Implement bookmark functionality
+                    console.log('Bookmark vulnerability:', vulnerabilityId);
+                  }}
+                  onView={(vulnerabilityId) => {
+                    router.push(`/vulnerabilities/${vulnerabilityId}`);
+                  }}
                 />
               </div>
             </div>

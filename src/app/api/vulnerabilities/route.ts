@@ -25,6 +25,12 @@ export async function GET(request: NextRequest) {
     const cvssMax = Number.parseFloat(searchParams.get('cvssMax') || '10');
     const dateFrom = searchParams.get('dateFrom');
     const dateTo = searchParams.get('dateTo');
+    const exploitAvailable = searchParams.get('exploitAvailable') === 'true';
+    const patchAvailable = searchParams.get('patchAvailable') === 'true';
+    const kev = searchParams.get('kev') === 'true';
+    const trending = searchParams.get('trending') === 'true';
+    const category = searchParams.get('category')?.split(',').filter(Boolean) || [];
+    const tags = searchParams.get('tags')?.split(',').filter(Boolean) || [];
     const sortBy = searchParams.get('sortBy') || 'publishedDate';
     const sortOrder = searchParams.get('sortOrder') || 'desc';
 
@@ -32,7 +38,7 @@ export async function GET(request: NextRequest) {
     const collection = db.collection<Vulnerability>('vulnerabilities');
 
     // Build query
-    const query: any = {};
+    const query: Record<string, unknown> = {};
 
     // Text search with index optimization
     if (searchText) {
@@ -66,12 +72,36 @@ export async function GET(request: NextRequest) {
     // Date range
     if (dateFrom || dateTo) {
       query.publishedDate = {};
-      if (dateFrom) query.publishedDate.$gte = dateFrom;
-      if (dateTo) query.publishedDate.$lte = dateTo;
+      if (dateFrom) (query.publishedDate as Record<string, unknown>).$gte = dateFrom;
+      if (dateTo) (query.publishedDate as Record<string, unknown>).$lte = dateTo;
+    }
+
+    // Exploit and patch availability
+    if (searchParams.has('exploitAvailable')) {
+      query.exploitAvailable = exploitAvailable;
+    }
+    if (searchParams.has('patchAvailable')) {
+      query.patchAvailable = patchAvailable;
+    }
+    if (searchParams.has('kev')) {
+      query.kev = kev;
+    }
+    if (searchParams.has('trending')) {
+      query.trending = trending;
+    }
+
+    // Category filter
+    if (category.length > 0) {
+      query.category = { $in: category };
+    }
+
+    // Tags filter
+    if (tags.length > 0) {
+      query.tags = { $in: tags };
     }
 
     // Build sort object
-    const sortObj: any = {};
+    const sortObj: Record<string, 1 | -1> = {};
     switch (sortBy) {
       case 'cveId':
         sortObj.cveId = sortOrder === 'asc' ? 1 : -1;

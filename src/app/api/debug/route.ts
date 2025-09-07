@@ -35,12 +35,12 @@ export async function GET() {
     console.log('=== AUTH DEBUG END ===');
 
     return NextResponse.json(result);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Auth debug failed:', error);
     return NextResponse.json(
       {
         error: 'Debug failed',
-        message: error.message,
+        message: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString(),
       },
       { status: 500 }

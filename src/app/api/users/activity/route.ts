@@ -20,7 +20,7 @@ export async function GET(request: Request) {
     const collection = db.collection('user_activity');
 
     // Build query
-    const query: any = { userId: user.id };
+    const query: Record<string, unknown> = { userId: user.id };
 
     if (type && type !== 'all') {
       query.type = type;
@@ -28,8 +28,8 @@ export async function GET(request: Request) {
 
     if (startDate || endDate) {
       query.timestamp = {};
-      if (startDate) query.timestamp.$gte = startDate;
-      if (endDate) query.timestamp.$lte = endDate;
+      if (startDate) (query.timestamp as Record<string, unknown>).$gte = startDate;
+      if (endDate) (query.timestamp as Record<string, unknown>).$lte = endDate;
     }
 
     // Get activities with vulnerability details where applicable

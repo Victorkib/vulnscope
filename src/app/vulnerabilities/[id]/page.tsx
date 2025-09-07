@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useTheme } from '@/components/theme/theme-provider';
@@ -10,14 +10,26 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import AppLayout from '@/components/layout/app-layout';
 import BookmarkButton from '@/components/vulnerability/bookmark-button';
+import DiscussionThread from '@/components/collaboration/discussion-thread';
+import ShareVulnerability from '@/components/collaboration/share-vulnerability';
+import CommentItem from '@/components/comments/comment-item';
 import { useToast } from '@/hooks/use-toast';
+import { useVulnerabilityDetails } from '@/hooks/use-api';
+import { apiClient } from '@/lib/api-client';
 import type {
   Vulnerability,
   RelatedVulnerability,
   VulnerabilityComment,
 } from '@/types/vulnerability';
+import type { CommentWithVotes } from '@/types/community';
 import {
   formatRelativeTime,
   getSeverityBadgeColor,
@@ -52,17 +64,9 @@ import {
   Edit,
   MoreHorizontal,
 } from 'lucide-react';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
-interface CommentWithActions extends VulnerabilityComment {
-  likes: number;
-}
+// Use CommentWithVotes from community types which includes all necessary fields
+// This ensures proper type safety for comment operations
 
 export default function VulnerabilityDetailsPage() {
   const params = useParams();
@@ -71,14 +75,23 @@ export default function VulnerabilityDetailsPage() {
   const { preferences } = useTheme();
   const { toast } = useToast();
 
-  const [vulnerability, setVulnerability] = useState<Vulnerability | null>(
-    null
-  );
-  const [relatedVulns, setRelatedVulns] = useState<RelatedVulnerability[]>([]);
-  const [comments, setComments] = useState<CommentWithActions[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [commentsLoading, setCommentsLoading] = useState(true);
-  const [relatedLoading, setRelatedLoading] = useState(true);
+  // Apply user preferences for styling
+  const getFontSizeClass = () => {
+    switch (preferences?.fontSize) {
+      case 'small': return 'text-sm';
+      case 'large': return 'text-lg';
+      default: return 'text-base';
+    }
+  };
+
+  const getHighContrastClass = () => {
+    return preferences?.highContrast ? 'border-2 border-gray-300 dark:border-gray-600' : '';
+  };
+
+  const getAnimationClass = () => {
+    return preferences?.reduceMotion ? 'transition-none' : 'transition-colors';
+  };
+
   const [newComment, setNewComment] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
   const [editingComment, setEditingComment] = useState<string | null>(null);
@@ -86,96 +99,57 @@ export default function VulnerabilityDetailsPage() {
 
   const cveId = params.id as string;
 
+  // Use the optimized hook for data fetching
+  const {
+    vulnerability,
+    relatedVulns,
+    comments,
+    loading,
+    commentsLoading,
+    relatedLoading,
+    error,
+    refetch,
+    setComments,
+  } = useVulnerabilityDetails(cveId);
+
+  // Handle errors from the hook
   useEffect(() => {
-    if (cveId) {
-      fetchVulnerabilityDetails();
-    }
-  }, [cveId]);
-
-  const fetchVulnerabilityDetails = async () => {
-    try {
-      setLoading(true);
-      const [vulnRes, relatedRes, commentsRes] = await Promise.all([
-        fetch(`/api/vulnerabilities/${cveId}`),
-        fetch(`/api/vulnerabilities/${cveId}/related`),
-        fetch(`/api/vulnerabilities/${cveId}/comments`),
-      ]);
-
-      if (vulnRes.ok) {
-        const vulnData = await vulnRes.json();
-        setVulnerability(vulnData);
-      } else {
-        toast({
-          title: 'Error',
-          description: 'Vulnerability not found',
-          variant: 'destructive',
-        });
-      }
-
-      if (relatedRes.ok) {
-        const relatedData = await relatedRes.json();
-        setRelatedVulns(relatedData);
-      }
-      setRelatedLoading(false);
-
-      if (commentsRes.ok) {
-        const commentsData = await commentsRes.json();
-        setComments(commentsData);
-      }
-      setCommentsLoading(false);
-    } catch (error) {
-      console.error('Error fetching vulnerability details:', error);
+    if (error) {
       toast({
         title: 'Error',
-        description: 'Failed to load vulnerability details',
+        description: error.message || 'Failed to load vulnerability details',
         variant: 'destructive',
       });
-    } finally {
-      setLoading(false);
     }
-  };
+  }, [error, toast]);
 
   const handleSubmitComment = async () => {
     if (!newComment.trim()) return;
 
     try {
       setSubmittingComment(true);
-      const response = await fetch(`/api/vulnerabilities/${cveId}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: newComment,
-          isPublic: true,
-          userId: user?.id || 'anonymous',
-          userEmail: user?.email || 'anonymous@example.com',
-          userDisplayName:
-            user?.user_metadata?.display_name ||
-            user?.email ||
-            'Anonymous User',
-        }),
+      
+      const comment = await apiClient.post(`/api/vulnerabilities/${cveId}/comments`, {
+        content: newComment,
+        isPublic: true,
       });
 
-      if (response.ok) {
-        const comment = await response.json();
-        setComments((prev) => [comment, ...prev]);
-        setNewComment('');
-        toast({
-          title: 'Comment Added',
-          description: 'Your comment has been posted successfully',
-        });
-      } else {
-        const error = await response.json();
-        toast({
-          title: 'Error',
-          description: error.error || 'Failed to post comment',
-          variant: 'destructive',
-        });
-      }
+      // Update local state optimistically
+      setComments((prev) => [comment, ...prev]);
+      setNewComment('');
+      
+      // Clear cache to ensure fresh data on next fetch
+      apiClient.clearCache(`/api/vulnerabilities/${cveId}/comments`);
+      
+      toast({
+        title: 'Comment Added',
+        description: 'Your comment has been posted successfully',
+      });
     } catch (error) {
       console.error('Error submitting comment:', error);
       toast({
         title: 'Error',
-        description: 'Failed to post comment',
+        description: error instanceof Error ? error.message : 'Failed to post comment',
         variant: 'destructive',
       });
     } finally {
@@ -183,50 +157,84 @@ export default function VulnerabilityDetailsPage() {
     }
   };
 
-  const handleLikeComment = async (commentId: string) => {
+  const handleVoteComment = async (commentId: string, voteType: 'like' | 'dislike') => {
     try {
-      const response = await fetch(
-        `/api/vulnerabilities/${cveId}/comments/${commentId}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'like' }),
-        }
-      );
+      const result = await apiClient.post(`/api/comments/${commentId}/vote`, {
+        voteType,
+      });
 
-      if (response.ok) {
-        const updatedComment = await response.json();
-        setComments((prev) =>
-          prev.map((comment) =>
-            comment.id === commentId
-              ? { ...comment, likes: updatedComment.likes }
-              : comment
-          )
-        );
-      }
+      // Update local state optimistically
+      setComments((prev) =>
+        prev.map((comment) =>
+          comment.id === commentId
+            ? { 
+                ...comment, 
+                likes: result.comment.likes,
+                dislikes: result.comment.dislikes,
+                userVote: result.userVote 
+              }
+            : comment
+        )
+      );
+      
+      // Clear cache to ensure fresh data on next fetch
+      apiClient.clearCache(`/api/vulnerabilities/${cveId}/comments`);
+      
+      toast({
+        title: 'Vote recorded',
+        description: `Your ${voteType} has been recorded`,
+      });
     } catch (error) {
-      console.error('Error liking comment:', error);
+      console.error(`Error ${voteType}ing comment:`, error);
+      toast({
+        title: 'Error',
+        description: `Failed to record your ${voteType}`,
+        variant: 'destructive',
+      });
     }
+  };
+
+
+  const [replyingToComment, setReplyingToComment] = useState<string | null>(null);
+
+  const handleReplyComment = (commentId: string) => {
+    setReplyingToComment(commentId);
+  };
+
+  const handleReplySubmitted = () => {
+    setReplyingToComment(null);
+    // Refresh comments to show the new reply
+    refetch();
+  };
+
+  const handleEditCommentFromItem = (commentId: string) => {
+    const comment = comments.find(c => c.id === commentId);
+    if (comment) {
+      setEditingComment(commentId);
+      setEditContent(comment.content);
+    }
+  };
+
+  const handleDeleteCommentFromItem = (commentId: string) => {
+    handleDeleteComment(commentId);
   };
 
   const handleDeleteComment = async (commentId: string) => {
     try {
-      const response = await fetch(
-        `/api/vulnerabilities/${cveId}/comments/${commentId}`,
-        {
-          method: 'DELETE',
-        }
-      );
+      await apiClient.delete(`/api/vulnerabilities/${cveId}/comments/${commentId}`);
 
-      if (response.ok) {
-        setComments((prev) =>
-          prev.filter((comment) => comment.id !== commentId)
-        );
-        toast({
-          title: 'Comment Deleted',
-          description: 'Comment has been removed',
-        });
-      }
+      // Update local state optimistically
+      setComments((prev) =>
+        prev.filter((comment) => comment.id !== commentId)
+      );
+      
+      // Clear cache to ensure fresh data on next fetch
+      apiClient.clearCache(`/api/vulnerabilities/${cveId}/comments`);
+      
+      toast({
+        title: 'Comment Deleted',
+        description: 'Comment has been removed',
+      });
     } catch (error) {
       console.error('Error deleting comment:', error);
       toast({
@@ -241,35 +249,34 @@ export default function VulnerabilityDetailsPage() {
     if (!editContent.trim()) return;
 
     try {
-      const response = await fetch(
+      const updatedComment = await apiClient.patch(
         `/api/vulnerabilities/${cveId}/comments/${commentId}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'edit', content: editContent }),
-        }
+        { action: 'edit', content: editContent }
       );
 
-      if (response.ok) {
-        const updatedComment = await response.json();
-        setComments((prev) =>
-          prev.map((comment) =>
-            comment.id === commentId
-              ? {
-                  ...comment,
-                  content: updatedComment.content,
-                  updatedAt: updatedComment.updatedAt,
-                }
-              : comment
-          )
-        );
-        setEditingComment(null);
-        setEditContent('');
-        toast({
-          title: 'Comment Updated',
-          description: 'Your comment has been updated',
-        });
-      }
+      // Update local state optimistically
+      setComments((prev) =>
+        prev.map((comment) =>
+          comment.id === commentId
+            ? {
+                ...comment,
+                content: updatedComment.content,
+                updatedAt: updatedComment.updatedAt,
+              }
+            : comment
+        )
+      );
+      
+      setEditingComment(null);
+      setEditContent('');
+      
+      // Clear cache to ensure fresh data on next fetch
+      apiClient.clearCache(`/api/vulnerabilities/${cveId}/comments`);
+      
+      toast({
+        title: 'Comment Updated',
+        description: 'Your comment has been updated',
+      });
     } catch (error) {
       console.error('Error editing comment:', error);
       toast({
@@ -309,8 +316,13 @@ export default function VulnerabilityDetailsPage() {
   const handleExport = async (format: 'json' | 'text') => {
     try {
       const response = await fetch(
-        `/api/vulnerabilities/${cveId}/export?format=${format}`
+        `/api/vulnerabilities/${cveId}/export?format=${format}`,
+        {
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        }
       );
+      
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -423,7 +435,7 @@ export default function VulnerabilityDetailsPage() {
 
   return (
     <AppLayout>
-      <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div className={`p-6 max-w-7xl mx-auto space-y-6 ${getFontSizeClass()}`}>
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-start justify-between space-y-4 lg:space-y-0">
           <div className="flex-1">
@@ -477,13 +489,16 @@ export default function VulnerabilityDetailsPage() {
                 <Calendar className="h-4 w-4" />
                 <span>
                   Published:{' '}
-                  {new Date(vulnerability.publishedDate).toLocaleDateString()}
+                  {new Date(vulnerability.publishedDate).toLocaleDateString(
+                    preferences?.language || 'en',
+                    { timeZone: preferences?.timezone || 'UTC' }
+                  )}
                 </span>
               </div>
               <div className="flex items-center space-x-1">
                 <Clock className="h-4 w-4" />
                 <span>
-                  Updated: {formatRelativeTime(vulnerability.lastModifiedDate)}
+                  Updated: {formatRelativeTime(vulnerability.lastModifiedDate, preferences?.language || 'en')}
                 </span>
               </div>
               {vulnerability.trending && (
@@ -609,15 +624,17 @@ export default function VulnerabilityDetailsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <Tabs defaultValue="overview" className="space-y-6">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="technical">Technical</TabsTrigger>
                 <TabsTrigger value="references">References</TabsTrigger>
                 <TabsTrigger value="comments">Comments</TabsTrigger>
+                <TabsTrigger value="discussions">Discussions</TabsTrigger>
+                <TabsTrigger value="collaboration">Collaboration</TabsTrigger>
               </TabsList>
 
               <TabsContent value="overview" className="space-y-6">
-                <Card className="border-0 shadow-lg">
+                <Card className={`border-0 shadow-lg ${getHighContrastClass()}`}>
                   <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
                       <FileText className="h-5 w-5 text-blue-600" />
@@ -985,122 +1002,79 @@ export default function VulnerabilityDetailsPage() {
                     ) : (
                       <div className="space-y-4">
                         {comments.map((comment) => (
-                          <div
+                          <CommentItem
                             key={comment.id}
-                            className="border-l-4 border-blue-500 pl-4 py-3"
-                          >
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center space-x-2">
-                                <span className="font-medium text-gray-900 dark:text-white">
-                                  {comment.user.displayName ||
-                                    comment.user.email}
-                                </span>
-                                <Badge variant="outline" className="text-xs">
-                                  {comment.isPublic ? 'Public' : 'Private'}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <span className="text-sm text-gray-500 dark:text-gray-400">
-                                  {formatRelativeTime(comment.createdAt)}
-                                </span>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm">
-                                      <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        handleLikeComment(comment.id)
-                                      }
-                                    >
-                                      <Heart className="h-4 w-4 mr-2" />
-                                      Like ({comment.likes || 0})
-                                    </DropdownMenuItem>
-                                    {user && comment.user.id === user.id && (
-                                      <>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                          onClick={() => {
-                                            setEditingComment(comment.id);
-                                            setEditContent(comment.content);
-                                          }}
-                                        >
-                                          <Edit className="h-4 w-4 mr-2" />
-                                          Edit
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                          onClick={() =>
-                                            handleDeleteComment(comment.id)
-                                          }
-                                          className="text-red-600"
-                                        >
-                                          <Trash2 className="h-4 w-4 mr-2" />
-                                          Delete
-                                        </DropdownMenuItem>
-                                      </>
-                                    )}
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-                            </div>
-                            {editingComment === comment.id ? (
-                              <div className="space-y-2">
-                                <Textarea
-                                  value={editContent}
-                                  onChange={(e) =>
-                                    setEditContent(e.target.value)
-                                  }
-                                  className="min-h-[80px]"
-                                  maxLength={2000}
-                                />
-                                <div className="flex items-center space-x-2">
-                                  <Button
-                                    size="sm"
-                                    onClick={() =>
-                                      handleEditComment(comment.id)
-                                    }
-                                  >
-                                    Save
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => {
-                                      setEditingComment(null);
-                                      setEditContent('');
-                                    }}
-                                  >
-                                    Cancel
-                                  </Button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div>
-                                <p className="text-gray-700 dark:text-gray-300 mb-2">
-                                  {comment.content}
-                                </p>
-                                <div className="flex items-center space-x-4 text-sm text-gray-500">
-                                  <button
-                                    onClick={() =>
-                                      handleLikeComment(comment.id)
-                                    }
-                                    className="flex items-center space-x-1 hover:text-red-500 transition-colors"
-                                  >
-                                    <Heart className="h-4 w-4" />
-                                    <span>{comment.likes || 0}</span>
-                                  </button>
-                                  {comment.updatedAt !== comment.createdAt && (
-                                    <span className="text-xs">Edited</span>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
+                            comment={comment}
+                            currentUserId={user?.id}
+                            vulnerabilityId={cveId}
+                            onReply={handleReplyComment}
+                            onEdit={handleEditCommentFromItem}
+                            onDelete={handleDeleteCommentFromItem}
+                            onVote={handleVoteComment}
+                            onReplySubmitted={handleReplySubmitted}
+                            showReplyForm={replyingToComment === comment.id}
+                          />
                         ))}
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Discussions Tab */}
+              <TabsContent value="discussions" className="space-y-6">
+                <DiscussionThread vulnerabilityId={vulnerability.cveId} />
+              </TabsContent>
+
+              {/* Collaboration Tab */}
+              <TabsContent value="collaboration" className="space-y-6">
+                <Card className="border-0 shadow-lg">
+                  <CardHeader>
+                    <CardTitle className="flex items-center space-x-2">
+                      <Share2 className="h-5 w-5 text-green-600" />
+                      <span>Share & Collaborate</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <div>
+                        <h3 className="font-medium text-gray-900 dark:text-gray-100">
+                          Share with Team Members
+                        </h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          Share this vulnerability with your team for collaborative analysis
+                        </p>
+                      </div>
+                      <ShareVulnerability vulnerabilityId={vulnerability.cveId} />
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="p-4 border rounded-lg">
+                        <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">
+                          Team Discussions
+                        </h4>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                          Start team discussions about this vulnerability
+                        </p>
+                        <Button variant="outline" size="sm">
+                          <MessageSquare className="h-4 w-4 mr-2" />
+                          Start Discussion
+                        </Button>
+                      </div>
+                      
+                      <div className="p-4 border rounded-lg">
+                        <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">
+                          Export for Analysis
+                        </h4>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                          Export vulnerability data for external analysis tools
+                        </p>
+                        <Button variant="outline" size="sm">
+                          <Download className="h-4 w-4 mr-2" />
+                          Export Data
+                        </Button>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1175,7 +1149,7 @@ export default function VulnerabilityDetailsPage() {
                             CVSS {related.cvssScore}
                           </span>
                           <span className="text-xs text-gray-500 dark:text-gray-400">
-                            {formatRelativeTime(related.publishedDate)}
+                            {formatRelativeTime(related.publishedDate, preferences?.language || 'en')}
                           </span>
                         </div>
                       </div>

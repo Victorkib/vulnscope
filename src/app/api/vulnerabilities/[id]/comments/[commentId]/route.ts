@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/mongodb';
+import { getServerUser } from '@/lib/supabase-server';
 import { ObjectId } from 'mongodb';
 
 export async function DELETE(
@@ -7,6 +8,12 @@ export async function DELETE(
   context: { params: Promise<{ id: string; commentId: string }> }
 ) {
   try {
+    const { user, error } = await getServerUser();
+
+    if (error || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const params = await context.params;
     const { commentId } = params;
     const db = await getDatabase();
@@ -19,8 +26,19 @@ export async function DELETE(
       );
     }
 
+    // Check if comment exists and belongs to user
+    const comment = await commentsCollection.findOne({
+      _id: new ObjectId(commentId),
+      userId: user.id,
+    });
+
+    if (!comment) {
+      return NextResponse.json({ error: 'Comment not found or unauthorized' }, { status: 404 });
+    }
+
     const result = await commentsCollection.deleteOne({
       _id: new ObjectId(commentId),
+      userId: user.id,
     });
 
     if (result.deletedCount === 0) {
@@ -42,6 +60,12 @@ export async function PATCH(
   context: { params: Promise<{ id: string; commentId: string }> }
 ) {
   try {
+    const { user, error } = await getServerUser();
+
+    if (error || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const params = await context.params;
     const { commentId } = params;
     const body = await request.json();
@@ -55,6 +79,18 @@ export async function PATCH(
         { error: 'Invalid comment ID' },
         { status: 400 }
       );
+    }
+
+    // For edit action, check if comment belongs to user
+    if (action === 'edit') {
+      const comment = await commentsCollection.findOne({
+        _id: new ObjectId(commentId),
+        userId: user.id,
+      });
+
+      if (!comment) {
+        return NextResponse.json({ error: 'Comment not found or unauthorized' }, { status: 404 });
+      }
     }
 
     let updateOperation = {};
@@ -74,6 +110,7 @@ export async function PATCH(
         $set: {
           content: content.trim(),
           updatedAt: new Date(),
+          isEdited: true,
         },
       };
     } else {
@@ -107,16 +144,20 @@ export async function PATCH(
     const transformedComment = {
       id: updatedComment._id.toString(),
       content: updatedComment.content,
-      user: {
-        id: updatedComment.userId,
-        email: updatedComment.userEmail,
-        displayName: updatedComment.userDisplayName,
-      },
+      userId: updatedComment.userId,
+      userEmail: updatedComment.userEmail,
+      userDisplayName: updatedComment.userDisplayName,
       vulnerabilityId: updatedComment.vulnerabilityId,
       isPublic: updatedComment.isPublic,
       createdAt: updatedComment.createdAt.toISOString(),
       updatedAt: updatedComment.updatedAt.toISOString(),
       likes: updatedComment.likes || 0,
+      dislikes: updatedComment.dislikes || 0,
+      isEdited: updatedComment.isEdited || false,
+      userVote: undefined,
+      userReputation: 0,
+      userLevel: 1,
+      userBadges: [],
     };
 
     return NextResponse.json(transformedComment);
