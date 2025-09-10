@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/mongodb';
 import { getServerUser } from '@/lib/supabase-server';
+import { achievementService } from '@/lib/achievement-service';
 
 export async function GET(request: Request) {
   try {
@@ -98,6 +99,23 @@ export async function POST(request: Request) {
     };
 
     await collection.insertOne(activity);
+
+    // Check for achievements after logging activity
+    try {
+      // Get user stats for achievement calculation
+      const statsCollection = db.collection('user_stats');
+      const userStats = await statsCollection.findOne({ userId: user.id });
+      
+      if (userStats) {
+        // Check achievements asynchronously to avoid blocking the response
+        achievementService.checkAchievements(user.id, userStats as any).catch(error => {
+          console.error('Error checking achievements:', error);
+        });
+      }
+    } catch (achievementError) {
+      // Log error but don't fail the activity creation
+      console.error('Error in achievement check:', achievementError);
+    }
 
     return NextResponse.json(activity, { status: 201 });
   } catch (error) {

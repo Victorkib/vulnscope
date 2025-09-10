@@ -1,24 +1,9 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { getDatabase } from '@/lib/mongodb';
 import { getServerUser } from '@/lib/supabase-server';
-import type { ObjectId } from 'mongodb';
-
-interface Comment {
-  _id?: ObjectId;
-  vulnerabilityId: string;
-  userId: string;
-  userEmail: string;
-  userDisplayName: string;
-  content: string;
-  isPublic: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-  likes: number;
-  dislikes: number;
-  replies: ObjectId[];
-  parentId?: string;
-  isEdited: boolean;
-}
+import { supabase } from '@/lib/supabase-server';
+import { notificationService } from '@/lib/notification-service';
+// import { commentReputationService } from '@/lib/comment-reputation-service';
+// import { shouldUseSupabase } from '@/lib/migration-config';
 
 export async function GET(
   request: NextRequest,
@@ -29,103 +14,90 @@ export async function GET(
     const { id: cveId } = params;
     const { user } = await getServerUser();
     
-    const db = await getDatabase();
-    const commentsCollection = db.collection<Comment>('vulnerability_comments');
-    const votesCollection = db.collection('comment_votes');
-    const reputationCollection = db.collection('user_reputation');
+    const supabaseClient = await supabase();
 
     // Fetch comments for this vulnerability, sorted by creation date (newest first)
-    // Only fetch top-level comments (no parentId)
-    const comments = await commentsCollection
-      .find({ 
-        vulnerabilityId: cveId,
-        parentId: { $exists: false }
-      })
-      .sort({ createdAt: -1 })
-      .toArray();
+    // Only fetch top-level comments (no parent_id)
+    const { data: comments, error: commentsError } = await supabaseClient
+      .from('vulnerability_comments')
+      .select('*')
+      .eq('vulnerabilityid', cveId)
+      .is('parent_id', null)
+      .order('created_at', { ascending: false });
+
+    if (commentsError) {
+      throw commentsError;
+    }
 
     // Get user votes for these comments
-    const commentIds = comments.map(c => c._id?.toString()).filter(Boolean);
-    const userVotes = user ? await votesCollection.find({
-      commentId: { $in: commentIds },
-      userId: user.id,
-    }).toArray() : [];
-
-    // Get user reputations
-    const userIds = [...new Set(comments.map(c => c.userId))];
-    const reputations = await reputationCollection.find({
-      userId: { $in: userIds },
-    }).toArray();
+    const commentIds = comments?.map(c => c.id) || [];
+    const { data: userVotes } = user ? await supabaseClient
+      .from('comment_votes')
+      .select('*')
+      .in('comment_id', commentIds)
+      .eq('user_id', user.id) : { data: [] };
 
     // Transform to match the expected frontend format
-    const transformedComments = await Promise.all(comments.map(async (comment) => {
-      const commentId = comment._id?.toString();
-      const userVote = userVotes.find(v => v.commentId === commentId);
-      const userReputation = reputations.find(r => r.userId === comment.userId);
+    const transformedComments = await Promise.all((comments || []).map(async (comment) => {
+      const userVote = userVotes?.find(v => v.comment_id === comment.id);
 
       // Fetch replies for this comment
-      const replies = await commentsCollection
-        .find({ parentId: commentId })
-        .sort({ createdAt: 1 }) // Oldest first for replies
-        .toArray();
+      const { data: replies } = await supabaseClient
+        .from('vulnerability_comments')
+        .select('*')
+        .eq('parent_id', comment.id)
+        .order('created_at', { ascending: true });
 
       // Get votes for replies
-      const replyIds = replies.map(r => r._id?.toString()).filter(Boolean);
-      const replyVotes = user ? await votesCollection.find({
-        commentId: { $in: replyIds },
-        userId: user.id,
-      }).toArray() : [];
+      const replyIds = replies?.map(r => r.id) || [];
+      const { data: replyVotes } = user ? await supabaseClient
+        .from('comment_votes')
+        .select('*')
+        .in('comment_id', replyIds)
+        .eq('user_id', user.id) : { data: [] };
 
-      // Get reputations for reply authors
-      const replyUserIds = [...new Set(replies.map(r => r.userId))];
-      const replyReputations = await reputationCollection.find({
-        userId: { $in: replyUserIds },
-      }).toArray();
-
-      // Transform replies
-      const transformedReplies = replies.map(reply => {
-        const replyId = reply._id?.toString();
-        const replyVote = replyVotes.find(v => v.commentId === replyId);
-        const replyUserReputation = replyReputations.find(r => r.userId === reply.userId);
+      // Transform replies (without async reputation calls for now)
+      const transformedReplies = (replies || []).map(reply => {
+        const replyVote = replyVotes?.find(v => v.comment_id === reply.id);
 
         return {
-          id: replyId,
+          id: reply.id,
           content: reply.content,
-          userId: reply.userId,
-          userEmail: reply.userEmail,
-          userDisplayName: reply.userDisplayName,
-          vulnerabilityId: reply.vulnerabilityId,
-          isPublic: reply.isPublic,
-          createdAt: reply.createdAt.toISOString(),
-          updatedAt: reply.updatedAt.toISOString(),
+          userId: reply.user_id,
+          userEmail: reply.user_email,
+          userDisplayName: reply.user_display_name,
+          vulnerabilityId: reply.vulnerabilityid,
+          isPublic: reply.is_public,
+          createdAt: reply.created_at,
+          updatedAt: reply.updated_at,
           likes: reply.likes || 0,
           dislikes: reply.dislikes || 0,
-          isEdited: reply.isEdited || false,
-          parentId: reply.parentId,
-          userVote: replyVote?.voteType,
-          userReputation: replyUserReputation?.totalScore || 0,
-          userLevel: replyUserReputation?.level || 1,
-          userBadges: replyUserReputation?.badges || [],
+          isEdited: reply.is_edited || false,
+          parentId: reply.parent_id,
+          userVote: replyVote?.vote_type,
+          userReputation: 0, // Simplified for now
+          userLevel: 1, // Simplified for now
+          userBadges: [], // Simplified for now
         };
       });
 
       return {
-        id: commentId,
+        id: comment.id,
         content: comment.content,
-        userId: comment.userId,
-        userEmail: comment.userEmail,
-        userDisplayName: comment.userDisplayName,
-        vulnerabilityId: comment.vulnerabilityId,
-        isPublic: comment.isPublic,
-        createdAt: comment.createdAt.toISOString(),
-        updatedAt: comment.updatedAt.toISOString(),
+        userId: comment.user_id,
+        userEmail: comment.user_email,
+        userDisplayName: comment.user_display_name,
+        vulnerabilityId: comment.vulnerabilityid,
+        isPublic: comment.is_public,
+        createdAt: comment.created_at,
+        updatedAt: comment.updated_at,
         likes: comment.likes || 0,
         dislikes: comment.dislikes || 0,
-        isEdited: comment.isEdited || false,
-        userVote: userVote?.voteType,
-        userReputation: userReputation?.totalScore || 0,
-        userLevel: userReputation?.level || 1,
-        userBadges: userReputation?.badges || [],
+        isEdited: comment.is_edited || false,
+        userVote: userVote?.vote_type,
+        userReputation: 0, // Simplified for now
+        userLevel: 1, // Simplified for now
+        userBadges: [], // Simplified for now
         replies: transformedReplies,
       };
     }));
@@ -174,51 +146,84 @@ export async function POST(
       );
     }
 
-    const db = await getDatabase();
-    const commentsCollection = db.collection<Comment>('vulnerability_comments');
+    const supabaseClient = await supabase();
 
-    // Use authenticated user data
-    const commentUserId = user.id;
-    const commentUserEmail = user.email || 'user@example.com';
-    const commentUserDisplayName = user.user_metadata?.display_name || user.email || 'User';
+    // Insert comment into Supabase
+    const { data: newComment, error: insertError } = await supabaseClient
+      .from('vulnerability_comments')
+      .insert({
+        vulnerabilityid: cveId,
+        user_id: user.id,
+        user_email: user.email || 'user@example.com',
+        user_display_name: user.user_metadata?.display_name || user.email || 'User',
+        content: content.trim(),
+        is_public: isPublic,
+        parent_id: parentId || null,
+      })
+      .select()
+      .single();
 
-    const newComment: Comment = {
-      vulnerabilityId: cveId,
-      userId: commentUserId,
-      userEmail: commentUserEmail,
-      userDisplayName: commentUserDisplayName,
-      content: content.trim(),
-      isPublic,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      likes: 0,
-      dislikes: 0,
-      replies: [],
-      parentId: parentId || undefined,
-      isEdited: false,
-    };
+    if (insertError) {
+      throw insertError;
+    }
 
-    const result = await commentsCollection.insertOne(newComment);
+    // Send notification to parent comment author if this is a reply
+    if (parentId) {
+      try {
+        // Get the parent comment to find the author
+        const { data: parentComment } = await supabaseClient
+          .from('vulnerability_comments')
+          .select('user_id, user_display_name, content')
+          .eq('id', parentId)
+          .single();
+
+        if (parentComment && parentComment.user_id !== user.id) {
+          // Send notification to parent comment author
+          await notificationService.sendCommentReply(
+            parentComment.user_id,
+            {
+              id: newComment.id,
+              content: newComment.content,
+              author: newComment.user_display_name,
+              vulnerabilityId: cveId,
+            }
+          );
+        }
+      } catch (notificationError) {
+        // Log error but don't fail the comment creation
+        console.error('Error sending comment reply notification:', notificationError);
+      }
+    }
 
     // Return the created comment in the expected format
     const createdComment = {
-      id: result.insertedId.toString(),
+      id: newComment.id,
       content: newComment.content,
-      userId: newComment.userId,
-      userEmail: newComment.userEmail,
-      userDisplayName: newComment.userDisplayName,
-      vulnerabilityId: newComment.vulnerabilityId,
-      isPublic: newComment.isPublic,
-      createdAt: newComment.createdAt.toISOString(),
-      updatedAt: newComment.updatedAt.toISOString(),
-      likes: newComment.likes,
-      dislikes: newComment.dislikes,
-      isEdited: newComment.isEdited,
+      userId: newComment.user_id,
+      userEmail: newComment.user_email,
+      userDisplayName: newComment.user_display_name,
+      vulnerabilityId: newComment.vulnerabilityid,
+      isPublic: newComment.is_public,
+      createdAt: newComment.created_at,
+      updatedAt: newComment.updated_at,
+      likes: newComment.likes || 0,
+      dislikes: newComment.dislikes || 0,
+      isEdited: newComment.is_edited || false,
+      parentId: newComment.parent_id,
       userVote: undefined,
-      userReputation: 0,
-      userLevel: 1,
-      userBadges: [],
+      userReputation: 0, // Simplified for now
+      userLevel: 1, // Simplified for now
+      userBadges: [], // Simplified for now
     };
+
+    // Update reputation for comment posting (disabled for now)
+    // if (shouldUseSupabase('enableReputationIntegration')) {
+    //   await commentReputationService.updateReputationOnComment(
+    //     user.id,
+    //     newComment.id,
+    //     !!parentId
+    //   );
+    // }
 
     return NextResponse.json(createdComment, { status: 201 });
   } catch (error) {
@@ -229,3 +234,6 @@ export async function POST(
     );
   }
 }
+
+// Helper functions for reputation integration (disabled for now)
+// These will be re-enabled once the reputation system is fully integrated

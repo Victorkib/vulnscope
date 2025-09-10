@@ -17,6 +17,8 @@ export interface TeamMember {
   joinedAt: string;
   invitedBy: string;
   status: 'active' | 'pending' | 'suspended';
+  invitationToken?: string; // Secure token for invitation validation
+  invitationExpiresAt?: string; // When the invitation expires
 }
 
 export interface TeamSettings {

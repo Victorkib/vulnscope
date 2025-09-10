@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { usePreferences } from '@/contexts/preferences-context';
 import {
   Select,
   SelectContent,
@@ -50,6 +51,7 @@ export default function AlertRuleForm({
   editingRule,
 }: AlertRuleFormProps) {
   const { toast } = useToast();
+  const { preferences } = usePreferences();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: editingRule?.name || '',
@@ -64,8 +66,8 @@ export default function AlertRuleForm({
       kev: editingRule?.conditions.kev,
     } as AlertConditions,
     actions: {
-      email: editingRule?.actions.email || false,
-      push: editingRule?.actions.push || false,
+      email: editingRule?.actions.email || preferences?.emailNotifications || false,
+      push: editingRule?.actions.push || preferences?.pushNotifications || false,
       webhook: editingRule?.actions.webhook || undefined,
       slack: editingRule?.actions.slack || undefined,
       discord: editingRule?.actions.discord || undefined,

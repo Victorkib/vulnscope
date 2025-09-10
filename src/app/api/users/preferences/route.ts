@@ -2,49 +2,18 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/mongodb';
 import { getServerUser } from '@/lib/supabase-server';
 import type { ObjectId } from 'mongodb';
+import { defaultPreferences, type UnifiedPreferences } from '@/contexts/preferences-context';
 
-interface UserPreferences {
-  userId: string;
-  theme: 'light' | 'dark' | 'system';
-  emailNotifications: boolean;
-  pushNotifications: boolean;
-  weeklyDigest: boolean;
-  criticalAlerts: boolean;
-  exportFormat: 'json' | 'csv' | 'pdf';
-  dashboardLayout: 'compact' | 'comfortable' | 'spacious';
-  language: string;
-  timezone: string;
-  autoRefresh: boolean;
-  refreshInterval: number;
-  defaultSeverityFilter: string[];
-  maxResultsPerPage: number;
-  showPreviewCards: boolean;
-  enableSounds: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+// Use the same interface as the context
+type UserPreferences = UnifiedPreferences;
 
 interface UserPreferencesDocument extends UserPreferences {
   _id?: ObjectId;
 }
 
 const getDefaultPreferences = (userId: string): UserPreferences => ({
+  ...defaultPreferences,
   userId,
-  theme: 'system',
-  emailNotifications: true,
-  pushNotifications: false,
-  weeklyDigest: true,
-  criticalAlerts: true,
-  exportFormat: 'json',
-  dashboardLayout: 'comfortable',
-  language: 'en',
-  timezone: 'UTC',
-  autoRefresh: false,
-  refreshInterval: 300000, // 5 minutes
-  defaultSeverityFilter: ['CRITICAL', 'HIGH'],
-  maxResultsPerPage: 25,
-  showPreviewCards: true,
-  enableSounds: false,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
 });
@@ -52,12 +21,39 @@ const getDefaultPreferences = (userId: string): UserPreferences => ({
 const validatePreferences = (preferences: Record<string, unknown>): boolean => {
   const requiredFields = [
     'theme',
+    'fontSize',
+    'dashboardLayout',
     'language',
     'timezone',
     'exportFormat',
-    'dashboardLayout',
+    'maxResultsPerPage',
+    'refreshInterval',
   ];
-  return requiredFields.every((field) => preferences.hasOwnProperty(field));
+  
+  // Check required fields exist
+  if (!requiredFields.every((field) => preferences.hasOwnProperty(field))) {
+    return false;
+  }
+  
+  // Validate enum values
+  const validThemes = ['light', 'dark', 'system'];
+  const validFontSizes = ['small', 'medium', 'large'];
+  const validLayouts = ['compact', 'comfortable', 'spacious'];
+  const validExportFormats = ['json', 'csv', 'pdf'];
+  
+  if (!validThemes.includes(preferences.theme as string)) return false;
+  if (!validFontSizes.includes(preferences.fontSize as string)) return false;
+  if (!validLayouts.includes(preferences.dashboardLayout as string)) return false;
+  if (!validExportFormats.includes(preferences.exportFormat as string)) return false;
+  
+  // Validate numeric ranges
+  const maxResults = preferences.maxResultsPerPage as number;
+  const refreshInterval = preferences.refreshInterval as number;
+  
+  if (maxResults < 10 || maxResults > 100) return false;
+  if (refreshInterval < 60000 || refreshInterval > 3600000) return false;
+  
+  return true;
 };
 
 export async function GET() {
@@ -128,21 +124,37 @@ export async function PUT(request: NextRequest) {
     // Prepare update data - only include UserPreferences fields
     const updateData: Partial<UserPreferences> = {
       userId: user.id,
+      // Appearance
       theme: preferences.theme,
+      fontSize: preferences.fontSize,
+      dashboardLayout: preferences.dashboardLayout,
+      showAnimations: preferences.showAnimations,
+      sidebarCollapsed: preferences.sidebarCollapsed,
+      
+      // Notifications
       emailNotifications: preferences.emailNotifications,
       pushNotifications: preferences.pushNotifications,
-      weeklyDigest: preferences.weeklyDigest,
       criticalAlerts: preferences.criticalAlerts,
+      weeklyDigest: preferences.weeklyDigest,
+      enableSounds: preferences.enableSounds,
+      
+      // Data & Export
       exportFormat: preferences.exportFormat,
-      dashboardLayout: preferences.dashboardLayout,
-      language: preferences.language,
-      timezone: preferences.timezone,
-      autoRefresh: preferences.autoRefresh,
-      refreshInterval: preferences.refreshInterval,
-      defaultSeverityFilter: preferences.defaultSeverityFilter,
       maxResultsPerPage: preferences.maxResultsPerPage,
       showPreviewCards: preferences.showPreviewCards,
-      enableSounds: preferences.enableSounds,
+      defaultSeverityFilter: preferences.defaultSeverityFilter,
+      
+      // Behavior
+      autoRefresh: preferences.autoRefresh,
+      refreshInterval: preferences.refreshInterval,
+      
+      // Accessibility
+      language: preferences.language,
+      timezone: preferences.timezone,
+      highContrast: preferences.highContrast,
+      reduceMotion: preferences.reduceMotion,
+      screenReader: preferences.screenReader,
+      
       updatedAt: new Date().toISOString(),
     };
 

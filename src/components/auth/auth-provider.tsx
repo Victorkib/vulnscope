@@ -5,17 +5,20 @@ import type React from 'react';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { clientInvitationService } from '@/lib/client-invitation-service';
 import type { User } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  processingInvitations: boolean;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
+  processingInvitations: false,
   signOut: async () => {},
 });
 
@@ -34,6 +37,7 @@ export default function AuthProvider({
 }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [processingInvitations, setProcessingInvitations] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -79,8 +83,25 @@ export default function AuthProvider({
 
         if (event === 'SIGNED_OUT' || !session) {
           router.push('/');
-        } else if (event === 'SIGNED_IN' && pathname === '/') {
-          router.push('/dashboard');
+        } else if (event === 'SIGNED_IN' && session?.user) {
+          // Check for pending invitations when user signs in
+          setProcessingInvitations(true);
+          try {
+            const invitationResult = await clientInvitationService.checkAndProcessPendingInvitations();
+
+            if (invitationResult.autoAcceptedCount > 0) {
+              console.log(`[AUTH] Auto-accepted ${invitationResult.autoAcceptedCount} team invitations for ${session.user.email}`);
+            }
+          } catch (error) {
+            console.error('Error checking pending invitations:', error);
+            // Don't block the sign-in process if invitation checking fails
+          } finally {
+            setProcessingInvitations(false);
+          }
+
+          if (pathname === '/') {
+            router.push('/dashboard');
+          }
         }
       });
 
@@ -109,7 +130,7 @@ export default function AuthProvider({
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signOut }}>
+    <AuthContext.Provider value={{ user, loading, processingInvitations, signOut }}>
       {children}
     </AuthContext.Provider>
   );

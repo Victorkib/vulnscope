@@ -34,6 +34,7 @@ export async function testCommentSystem() {
       updatedAt: new Date().toISOString(),
       likes: 0,
       dislikes: 0,
+      replies: [],
       isEdited: false,
     };
 
@@ -76,7 +77,7 @@ export async function testCommentSystem() {
 
     // Test 4: Check reputation system
     console.log('\n🏆 Test 4: Testing reputation system...');
-    const reputation = await reputationService.calculateUserReputation(user.id);
+    const reputation = await reputationService.getUserReputation(user.id);
     console.log(`✅ User reputation: ${reputation.score} (Level: ${reputation.level})`);
 
     // Test 5: Verify comment data integrity

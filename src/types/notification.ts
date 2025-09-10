@@ -1,7 +1,7 @@
 export interface Notification {
   id: string;
   userId: string;
-  type: 'vulnerability_alert' | 'comment_reply' | 'bookmark_update' | 'system_alert' | 'achievement_unlocked';
+  type: 'vulnerability_alert' | 'comment_reply' | 'bookmark_update' | 'system_alert' | 'achievement_unlocked' | 'vulnerability_shared';
   title: string;
   message: string;
   data?: Record<string, unknown>;
@@ -10,11 +10,15 @@ export interface Notification {
   createdAt: string;
   readAt?: string;
   expiresAt?: string;
+  deliveryStatus?: 'pending' | 'delivered' | 'failed' | 'retrying';
+  deliveryAttempts?: number;
+  lastDeliveryAttempt?: string;
+  deliveryError?: string;
 }
 
 export interface RealtimeNotification {
   id: string;
-  type: 'vulnerability_alert' | 'comment_reply' | 'bookmark_update' | 'system_alert' | 'achievement_unlocked';
+  type: 'vulnerability_alert' | 'comment_reply' | 'bookmark_update' | 'system_alert' | 'achievement_unlocked' | 'vulnerability_shared';
   title: string;
   message: string;
   data?: Record<string, unknown>;
@@ -67,6 +71,28 @@ export interface AlertRule {
   updatedAt: string;
   lastTriggered?: string;
   triggerCount: number;
+}
+
+export interface NotificationTemplate {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  type: Notification['type'];
+  titleTemplate: string;
+  messageTemplate: string;
+  variables: string[]; // Available variables like {{cveId}}, {{severity}}, etc.
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationTemplateVariable {
+  name: string;
+  description: string;
+  example: string;
+  availableFor: Notification['type'][];
 }
 
 

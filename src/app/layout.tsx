@@ -3,7 +3,9 @@ import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
 import AuthProvider from '@/components/auth/auth-provider';
+import InvitationProcessingLoader from '@/components/auth/invitation-processing-loader';
 import { ThemeProvider } from '@/components/theme/theme-provider';
+import { PreferencesProvider } from '@/contexts/preferences-context';
 import { Toaster } from '@/components/ui/toaster';
 
 const inter = Inter({
@@ -56,10 +58,13 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <AuthProvider>
-          <ThemeProvider>
-            {children}
-            <Toaster />
-          </ThemeProvider>
+          <PreferencesProvider>
+            <ThemeProvider>
+              {children}
+              <InvitationProcessingLoader />
+              <Toaster />
+            </ThemeProvider>
+          </PreferencesProvider>
         </AuthProvider>
       </body>
     </html>

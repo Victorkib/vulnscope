@@ -5,7 +5,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { apiClient } from '@/lib/api-client';
 import {
   Users,
   Plus,
@@ -16,6 +22,7 @@ import {
   Eye,
   Mail,
   MoreHorizontal,
+  Loader2,
 } from 'lucide-react';
 import type { Team, TeamMember } from '@/types/collaboration';
 
@@ -26,6 +33,17 @@ interface TeamManagerProps {
 export default function TeamManager({ className }: TeamManagerProps) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creatingTeam, setCreatingTeam] = useState(false);
+  const [deletingTeam, setDeletingTeam] = useState(false);
+  const [addingMember, setAddingMember] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+  const [newTeamName, setNewTeamName] = useState('');
+  const [newTeamDescription, setNewTeamDescription] = useState('');
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState<'admin' | 'member' | 'viewer'>('member');
   const { toast } = useToast();
 
   useEffect(() => {
@@ -34,14 +52,11 @@ export default function TeamManager({ className }: TeamManagerProps) {
 
   const fetchTeams = async () => {
     try {
-      const response = await fetch('/api/teams', {
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+      const data = await apiClient.get('/api/teams', {
+        enableCache: true,
+        cacheTTL: 300000, // 5 minutes cache
       });
-      if (response.ok) {
-        const data = await response.json();
-        setTeams(data);
-      }
+      setTeams(data);
     } catch (error) {
       console.error('Error fetching teams:', error);
     } finally {
@@ -50,33 +65,87 @@ export default function TeamManager({ className }: TeamManagerProps) {
   };
 
   const createTeam = async () => {
-    const name = prompt('Enter team name:');
-    if (!name) return;
+    if (!newTeamName.trim()) return;
 
+    setCreatingTeam(true);
     try {
-      const response = await fetch('/api/teams', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
+      const team = await apiClient.post('/api/teams', { 
+        name: newTeamName.trim(), 
+        description: newTeamDescription.trim() || undefined 
       });
-
-      if (response.ok) {
-        const team = await response.json();
-        setTeams(prev => [team, ...prev]);
-        toast({
-          title: 'Team created',
-          description: `Team "${name}" has been created successfully`,
-        });
-      } else {
-        throw new Error('Failed to create team');
-      }
+      setTeams(prev => [team, ...prev]);
+      setNewTeamName('');
+      setNewTeamDescription('');
+      setShowCreateDialog(false);
+      toast({
+        title: 'Team created',
+        description: `Team "${newTeamName}" has been created successfully`,
+      });
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'Failed to create team',
+        description: error instanceof Error ? error.message : 'Failed to create team',
         variant: 'destructive',
       });
+    } finally {
+      setCreatingTeam(false);
+    }
+  };
+
+  const deleteTeam = async () => {
+    if (!selectedTeam) return;
+
+    setDeletingTeam(true);
+    try {
+      await apiClient.delete(`/api/teams/${selectedTeam.id}`);
+      setTeams(prev => prev.filter(team => team.id !== selectedTeam.id));
+      setShowDeleteDialog(false);
+      setSelectedTeam(null);
+      toast({
+        title: 'Team deleted',
+        description: `Team "${selectedTeam.name}" has been deleted successfully`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to delete team',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeletingTeam(false);
+    }
+  };
+
+  const addMember = async () => {
+    if (!selectedTeam || !newMemberEmail.trim()) return;
+
+    setAddingMember(true);
+    try {
+      const newMember = await apiClient.post(`/api/teams/${selectedTeam.id}/members`, { 
+        email: newMemberEmail.trim(), 
+        role: newMemberRole 
+      });
+      setTeams(prev => prev.map(team => 
+        team.id === selectedTeam.id 
+          ? { ...team, members: [...team.members, newMember] }
+          : team
+      ));
+      setNewMemberEmail('');
+      setNewMemberRole('member');
+      setShowAddMemberDialog(false);
+      setSelectedTeam(null);
+      toast({
+        title: 'Member invited',
+        description: `Invitation sent to ${newMemberEmail}. They will receive an email notification.`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to invite member',
+        variant: 'destructive',
+      });
+    } finally {
+      setAddingMember(false);
     }
   };
 
@@ -139,10 +208,55 @@ export default function TeamManager({ className }: TeamManagerProps) {
             <span>Teams</span>
             <Badge variant="outline">{teams.length}</Badge>
           </CardTitle>
-          <Button size="sm" onClick={createTeam}>
-            <Plus className="h-4 w-4 mr-2" />
-            Create Team
-          </Button>
+          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Team
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Create New Team</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="team-name">Team Name</Label>
+                  <Input
+                    id="team-name"
+                    placeholder="Enter team name"
+                    value={newTeamName}
+                    onChange={(e) => setNewTeamName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="team-description">Description (Optional)</Label>
+                  <Textarea
+                    id="team-description"
+                    placeholder="Enter team description"
+                    value={newTeamDescription}
+                    onChange={(e) => setNewTeamDescription(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={createTeam} disabled={!newTeamName.trim() || creatingTeam}>
+                  {creatingTeam ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Team'
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </CardHeader>
       <CardContent>
@@ -155,7 +269,7 @@ export default function TeamManager({ className }: TeamManagerProps) {
             <p className="text-gray-600 dark:text-gray-400 mb-4">
               Create your first team to collaborate on vulnerability research
             </p>
-            <Button onClick={createTeam}>
+            <Button onClick={() => setShowCreateDialog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Create Team
             </Button>
@@ -226,10 +340,27 @@ export default function TeamManager({ className }: TeamManagerProps) {
                     </div>
 
                     <div className="flex items-center space-x-2 ml-4">
-                      <Button variant="ghost" size="sm">
-                        <Settings className="h-4 w-4" />
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => {
+                          setSelectedTeam(team);
+                          setShowAddMemberDialog(true);
+                        }}
+                        title="Add member"
+                      >
+                        <Plus className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="sm">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => {
+                          setSelectedTeam(team);
+                          setShowDeleteDialog(true);
+                        }}
+                        title="Delete team"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
                     </div>
@@ -240,6 +371,89 @@ export default function TeamManager({ className }: TeamManagerProps) {
           </div>
         )}
       </CardContent>
+
+      {/* Add Member Dialog */}
+      <Dialog open={showAddMemberDialog} onOpenChange={setShowAddMemberDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Team Member</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="member-email">Email Address</Label>
+              <Input
+                id="member-email"
+                type="email"
+                placeholder="user@example.com"
+                value={newMemberEmail}
+                onChange={(e) => setNewMemberEmail(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="member-role">Role</Label>
+              <Select value={newMemberRole} onValueChange={(value: 'admin' | 'member' | 'viewer') => setNewMemberRole(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="member">Member</SelectItem>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddMemberDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={addMember} disabled={!newMemberEmail.trim() || addingMember}>
+              {addingMember ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Sending Invitation...
+                </>
+              ) : (
+                'Add Member'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Team Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Team</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-gray-600 dark:text-gray-400">
+              Are you sure you want to delete the team "{selectedTeam?.name}"? This action cannot be undone.
+            </p>
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+              <p className="text-sm text-red-800 dark:text-red-200">
+                <strong>Warning:</strong> All team data, discussions, and shared vulnerabilities will be permanently deleted.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={deleteTeam} disabled={deletingTeam}>
+              {deletingTeam ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Team'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

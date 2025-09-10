@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useRouter } from 'next/navigation';
 import AuthForm from '@/components/auth/auth-form';
-import { Loader2 } from 'lucide-react';
+import EnhancedAuthLoader from '@/components/auth/enhanced-auth-loader';
 
 export default function HomePage() {
   const { user, loading } = useAuth();
@@ -12,29 +12,34 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!loading && user) {
-      router.push('/dashboard');
+      // Add a small delay to show the loader
+      const timer = setTimeout(() => {
+        router.push('/dashboard');
+      }, 2000);
+      
+      return () => clearTimeout(timer);
     }
   }, [user, loading, router]);
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
+      <EnhancedAuthLoader 
+        message="Initializing security session..."
+        stage="authenticating"
+        duration={3000}
+        showFeatures={true}
+      />
     );
   }
 
   if (user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p className="text-gray-600">Redirecting to dashboard...</p>
-        </div>
-      </div>
+      <EnhancedAuthLoader 
+        message="Redirecting to dashboard..."
+        stage="redirecting"
+        duration={2000}
+        showFeatures={true}
+      />
     );
   }
 

@@ -28,6 +28,11 @@ export async function GET() {
         supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
           ? 'Set'
           : 'Missing',
+        supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY
+          ? 'Set'
+          : 'Missing',
+        nodeEnv: process.env.NODE_ENV,
+        allEnvKeys: Object.keys(process.env).filter(key => key.includes('SUPABASE')),
       },
     };
 

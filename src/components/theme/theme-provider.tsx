@@ -1,33 +1,10 @@
 'use client';
 
 import type React from 'react';
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext } from 'react';
+import { usePreferences } from '@/contexts/preferences-context';
 
 type Theme = 'dark' | 'light' | 'system';
-
-export interface UserPreferences {
-  theme: Theme;
-  language: string;
-  timezone: string;
-  dashboardLayout: 'compact' | 'comfortable' | 'spacious';
-  emailNotifications: boolean;
-  pushNotifications: boolean;
-  weeklyDigest: boolean;
-  criticalAlerts: boolean;
-  exportFormat: 'json' | 'csv' | 'pdf';
-  autoRefresh: boolean;
-  refreshInterval: number;
-  defaultSeverityFilter: string[];
-  maxResultsPerPage: number;
-  showPreviewCards: boolean;
-  enableSounds: boolean;
-  sidebarCollapsed: boolean;
-  showAnimations: boolean;
-  fontSize: 'small' | 'medium' | 'large';
-  highContrast: boolean;
-  reduceMotion: boolean;
-  screenReader: boolean;
-}
 
 type ThemeProviderProps = {
   children: React.ReactNode;
@@ -37,37 +14,13 @@ type ThemeProviderProps = {
 
 type ThemeProviderState = {
   theme: Theme;
-  preferences: UserPreferences | null;
+  preferences: any;
   setTheme: (theme: Theme) => void;
-  updatePreference: (key: keyof UserPreferences, value: unknown) => void;
+  updatePreference: (key: string, value: unknown) => void;
   loadPreferences: () => Promise<void>;
   savePreferences: () => Promise<void>;
   isDarkMode: boolean;
   isLoading: boolean;
-};
-
-const defaultPreferences: UserPreferences = {
-  theme: 'system',
-  language: 'en',
-  timezone: 'UTC',
-  dashboardLayout: 'comfortable',
-  emailNotifications: true,
-  pushNotifications: false,
-  weeklyDigest: true,
-  criticalAlerts: true,
-  exportFormat: 'json',
-  autoRefresh: false,
-  refreshInterval: 300000,
-  defaultSeverityFilter: ['CRITICAL', 'HIGH'],
-  maxResultsPerPage: 25,
-  showPreviewCards: true,
-  enableSounds: false,
-  sidebarCollapsed: false,
-  showAnimations: true,
-  fontSize: 'medium',
-  highContrast: false,
-  reduceMotion: false,
-  screenReader: false,
 };
 
 const initialState: ThemeProviderState = {
@@ -89,216 +42,27 @@ export function ThemeProvider({
   storageKey: _storageKey = 'vulnscope-theme',
   ...props
 }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(defaultTheme);
-  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  // Use the centralized preferences hook
+  const {
+    preferences,
+    loading: isLoading,
+    updatePreference,
+    savePreferences,
+    refreshPreferences: loadPreferences,
+    isDarkMode,
+  } = usePreferences();
 
-  useEffect(() => {
-    loadPreferences();
-  }, []);
-
-  useEffect(() => {
-    if (preferences) {
-      applyTheme(preferences.theme);
-      applyFontSize(preferences.fontSize);
-      applyAnimations(preferences.showAnimations);
-      applyHighContrast(preferences.highContrast);
-      applyReduceMotion(preferences.reduceMotion);
-      applyScreenReader(preferences.screenReader);
-      applyDashboardLayout(preferences.dashboardLayout);
-    }
-  }, [preferences]);
-
-  const loadPreferences = async () => {
-    try {
-      // Import apiClient dynamically to avoid circular dependencies
-      const { apiClient } = await import('@/lib/api-client');
-      
-      const data = await apiClient.get('/api/users/preferences', {
-        cache: true,
-        cacheTTL: 600000, // 10 minutes cache
-      });
-      
-      const mergedPreferences = { ...defaultPreferences, ...data };
-      setPreferences(mergedPreferences);
-      setTheme(mergedPreferences.theme);
-      console.log('Preferences loaded successfully:', mergedPreferences);
-    } catch (error) {
-      console.error('Failed to load preferences:', error);
-      setPreferences(defaultPreferences);
-      setTheme(defaultPreferences.theme);
-    } finally {
-      setIsLoading(false);
-    }
+  const setTheme = (theme: Theme) => {
+    updatePreference('theme', theme);
   };
 
-  const savePreferences = async () => {
-    if (!preferences) return;
-
-    try {
-      // Import apiClient dynamically to avoid circular dependencies
-      const { apiClient } = await import('@/lib/api-client');
-      
-      await apiClient.put('/api/users/preferences', preferences);
-      
-      // Clear cache to ensure fresh data on next fetch
-      apiClient.clearCache('/api/users/preferences');
-    } catch (error) {
-      console.error('Failed to save preferences:', error);
-    }
-  };
-
-  const updatePreference = <K extends keyof UserPreferences>(
-    key: K,
-    value: UserPreferences[K]
-  ) => {
-    if (!preferences) return;
-    const updatedPreferences = { ...preferences, [key]: value };
-    setPreferences(updatedPreferences);
-
-    if (key === 'theme') {
-      setTheme(value as 'light' | 'dark' | 'system');
-    }
-
-    // Apply changes immediately
-    switch (key) {
-      case 'fontSize':
-        applyFontSize(value as string);
-        break;
-      case 'showAnimations':
-        applyAnimations(value as boolean);
-        break;
-      case 'highContrast':
-        applyHighContrast(value as boolean);
-        break;
-      case 'reduceMotion':
-        applyReduceMotion(value as boolean);
-        break;
-      case 'screenReader':
-        applyScreenReader(value as boolean);
-        break;
-      case 'dashboardLayout':
-        applyDashboardLayout(value as string);
-        break;
-    }
-  };
-
-  const applyTheme = (theme: Theme) => {
-    const root = window.document.documentElement;
-    root.classList.remove('light', 'dark');
-
-    if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
-        .matches
-        ? 'dark'
-        : 'light';
-      root.classList.add(systemTheme);
-      setIsDarkMode(systemTheme === 'dark');
-    } else {
-      root.classList.add(theme);
-      setIsDarkMode(theme === 'dark');
-    }
-  };
-
-  const applyFontSize = (fontSize: string) => {
-    const root = window.document.documentElement;
-    root.classList.remove(
-      'font-size-small',
-      'font-size-medium',
-      'font-size-large'
-    );
-    root.classList.add(`font-size-${fontSize}`);
-
-    // Apply CSS custom properties for font scaling
-    switch (fontSize) {
-      case 'small':
-        root.style.setProperty('--font-scale', '0.875');
-        break;
-      case 'large':
-        root.style.setProperty('--font-scale', '1.125');
-        break;
-      default:
-        root.style.setProperty('--font-scale', '1');
-    }
-  };
-
-  const applyAnimations = (enabled: boolean) => {
-    const root = window.document.documentElement;
-    if (enabled) {
-      root.classList.remove('motion-reduce');
-      root.style.setProperty('--animation-duration', '0.3s');
-    } else {
-      root.classList.add('motion-reduce');
-      root.style.setProperty('--animation-duration', '0s');
-    }
-  };
-
-  const applyHighContrast = (enabled: boolean) => {
-    const root = window.document.documentElement;
-    if (enabled) {
-      root.classList.add('high-contrast');
-      root.style.setProperty('--contrast-multiplier', '1.5');
-    } else {
-      root.classList.remove('high-contrast');
-      root.style.setProperty('--contrast-multiplier', '1');
-    }
-  };
-
-  const applyReduceMotion = (enabled: boolean) => {
-    const root = window.document.documentElement;
-    if (enabled) {
-      root.classList.add('reduce-motion');
-      root.style.setProperty('--motion-scale', '0');
-    } else {
-      root.classList.remove('reduce-motion');
-      root.style.setProperty('--motion-scale', '1');
-    }
-  };
-
-  const applyScreenReader = (enabled: boolean) => {
-    const root = window.document.documentElement;
-    if (enabled) {
-      root.classList.add('screen-reader-optimized');
-      root.setAttribute('aria-live', 'polite');
-    } else {
-      root.classList.remove('screen-reader-optimized');
-      root.removeAttribute('aria-live');
-    }
-  };
-
-  const applyDashboardLayout = (layout: string) => {
-    const root = window.document.documentElement;
-    root.classList.remove(
-      'layout-compact',
-      'layout-comfortable',
-      'layout-spacious'
-    );
-    root.classList.add(`layout-${layout}`);
-
-    // Apply spacing variables
-    switch (layout) {
-      case 'compact':
-        root.style.setProperty('--layout-spacing', '0.5rem');
-        root.style.setProperty('--card-padding', '1rem');
-        break;
-      case 'spacious':
-        root.style.setProperty('--layout-spacing', '2rem');
-        root.style.setProperty('--card-padding', '2rem');
-        break;
-      default:
-        root.style.setProperty('--layout-spacing', '1rem');
-        root.style.setProperty('--card-padding', '1.5rem');
-    }
-  };
+  // Get current theme from preferences
+  const theme = preferences?.theme || defaultTheme;
 
   const value = {
     theme,
     preferences,
-    setTheme: (theme: Theme) => {
-      setTheme(theme);
-      updatePreference('theme', theme);
-    },
+    setTheme,
     updatePreference,
     loadPreferences,
     savePreferences,

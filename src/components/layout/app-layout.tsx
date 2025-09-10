@@ -5,8 +5,10 @@ import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/components/auth/auth-provider';
-import { useTheme } from '@/components/theme/theme-provider';
+import { usePreferences } from '@/contexts/preferences-context';
 import { useSessionTimeout } from '@/hooks/use-session-timeout';
+import { useAdminAuth } from '@/hooks/use-admin-auth';
+import { useAdminNavigation } from './admin-navigation';
 import SessionTimeoutWarning from '@/components/auth/session-timeout-warning';
 import NotificationBell from '@/components/notifications/notification-bell';
 import { Button } from '@/components/ui/button';
@@ -49,6 +51,10 @@ import {
   Download,
   HelpCircle,
   Zap,
+  Globe,
+  TrendingUp,
+  Users,
+  UserCog,
 } from 'lucide-react';
 
 interface NavigationItem {
@@ -85,13 +91,15 @@ const navigation: NavigationItem[] = [
     ],
   },
   {
-    title: 'Analytics',
-    icon: BarChart3,
+    title: 'Threat Intelligence',
+    icon: Shield,
     href: '/analytics',
     children: [
-      { title: 'Overview', icon: BarChart3, href: '/analytics' },
-      { title: 'Trends', icon: Activity, href: '/analytics/trends' },
-      { title: 'Reports', icon: Download, href: '/analytics/reports' },
+      { title: 'Threat Landscape', icon: Globe, href: '/analytics' },
+      { title: 'Threat Actors', icon: Users, href: '/analytics/threat-actors' },
+      { title: 'Security Posture', icon: Shield, href: '/analytics/posture' },
+      { title: 'Predictive Analytics', icon: TrendingUp, href: '/analytics/predictive' },
+      { title: 'Intelligence Reports', icon: Download, href: '/analytics/reports' },
     ],
   },
   {
@@ -116,7 +124,7 @@ const navigation: NavigationItem[] = [
   {
     title: 'Documentation',
     icon: BookOpen,
-    href: '/docs',
+    href: '/documentation',
   },
 ];
 
@@ -128,9 +136,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, signOut } = useAuth();
-  const { preferences, updatePreference, isDarkMode, isLoading } = useTheme();
+  const { preferences, updatePreference, isDarkMode, loading } = usePreferences();
+  const { isAdmin, loading: adminLoading, error: adminError } = useAdminAuth();
+  const adminNavigation = useAdminNavigation();
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
+
+
 
   const isCollapsed = preferences?.sidebarCollapsed || false;
 
@@ -179,7 +192,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     return false;
   };
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
@@ -243,6 +256,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
           {/* Navigation */}
           <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
+            {/* Regular Navigation */}
             {navigation.map((item) => (
               <div key={item.title}>
                 <Tooltip>
@@ -283,6 +297,80 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 </Tooltip>
 
                 {/* Sub-navigation */}
+                {!isCollapsed && item.children && isActive(item.href) && (
+                  <div className="ml-4 mt-2 space-y-1">
+                    {item.children.map((child) => (
+                      <Button
+                        key={child.title}
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-start text-sm text-gray-600 dark:text-gray-400"
+                        onClick={() => router.push(child.href)}
+                      >
+                        <child.icon className="w-4 h-4 mr-3" />
+                        {child.title}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Admin Navigation Separator - Only show if explicitly admin and not loading */}
+            {!adminLoading && isAdmin === true && (
+              <>
+                <div className="my-4 border-t border-gray-200 dark:border-gray-700" />
+                <div className="px-2">
+                  {!isCollapsed && (
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+                      Administration
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Admin Navigation - Only show if explicitly admin and not loading */}
+            {!adminLoading && isAdmin === true && adminNavigation.map((item) => (
+              <div key={item.title}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={isActive(item.href) ? 'secondary' : 'ghost'}
+                      className={cn(
+                        'w-full justify-start',
+                        isCollapsed ? 'px-2' : 'px-3',
+                        isActive(item.href) &&
+                          'bg-red-50 dark:bg-red-900/50 text-red-700 dark:text-red-300'
+                      )}
+                      onClick={() => router.push(item.href)}
+                    >
+                      <item.icon
+                        className={cn('w-5 h-5', !isCollapsed && 'mr-3')}
+                      />
+                      {!isCollapsed && (
+                        <>
+                          <span className="flex-1 text-left">{item.title}</span>
+                          {item.badge && (
+                            <Badge
+                              variant="destructive"
+                              className="ml-auto text-xs"
+                            >
+                              {item.badge}
+                            </Badge>
+                          )}
+                        </>
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  {isCollapsed && (
+                    <TooltipContent side="right">
+                      <p>{item.title}</p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+
+                {/* Admin Sub-navigation */}
                 {!isCollapsed && item.children && isActive(item.href) && (
                   <div className="ml-4 mt-2 space-y-1">
                     {item.children.map((child) => (
@@ -406,10 +494,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
                       <Settings className="mr-2 h-4 w-4" />
                       Settings
                     </DropdownMenuItem>
-                    <DropdownMenuItem>
+                    {/* <DropdownMenuItem>
                       <HelpCircle className="mr-2 h-4 w-4" />
                       Help & Support
-                    </DropdownMenuItem>
+                    </DropdownMenuItem> */}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleSignOut}>
                       <LogOut className="mr-2 h-4 w-4" />

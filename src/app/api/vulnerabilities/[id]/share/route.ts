@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/mongodb';
 import { getServerUser } from '@/lib/supabase-server';
+import { emailService } from '@/lib/email-service';
+import { notificationService } from '@/lib/notification-service';
+import { teamService } from '@/lib/team-service';
 import type { SharedVulnerability } from '@/types/collaboration';
 
 export async function POST(
@@ -46,11 +49,35 @@ export async function POST(
     const db = await getDatabase();
     const collection = db.collection<SharedVulnerability>('shared_vulnerabilities');
 
+    // Validate team sharing
+    if (shareType === 'team') {
+      const teamsCollection = db.collection('teams');
+      const team = await teamsCollection.findOne({ id: shareWith });
+      
+      if (!team) {
+        return NextResponse.json(
+          { error: 'Team not found' },
+          { status: 404 }
+        );
+      }
+
+      // Check if user is a member of the team
+      const isMember = team.ownerId === user.id || 
+        team.members.some((member: any) => member.userId === user.id);
+      
+      if (!isMember) {
+        return NextResponse.json(
+          { error: 'You are not a member of this team' },
+          { status: 403 }
+        );
+      }
+    }
+
     // Check if already shared
     const existingShare = await collection.findOne({
       vulnerabilityId,
       sharedBy: user.id,
-      sharedWith,
+      shareWith,
       shareType,
     });
 
@@ -65,7 +92,7 @@ export async function POST(
       id: `share_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       vulnerabilityId,
       sharedBy: user.id,
-      sharedWith,
+      sharedWith: shareWith,
       shareType,
       message,
       permissions,
@@ -74,6 +101,102 @@ export async function POST(
     };
 
     await collection.insertOne(sharedVulnerability);
+
+    // Get vulnerability details for email notification
+    let vulnerabilityDetails = null;
+    try {
+      const vulnCollection = db.collection('vulnerabilities');
+      vulnerabilityDetails = await vulnCollection.findOne({ cveId: vulnerabilityId });
+    } catch (error) {
+      console.warn('Failed to fetch vulnerability details for notification:', error);
+    }
+
+    // Send email notification for individual user sharing
+    if (shareType === 'user' && vulnerabilityDetails) {
+      try {
+        await emailService.sendVulnerabilitySharedNotification(
+          shareWith,
+          vulnerabilityDetails,
+          user.user_metadata?.display_name || user.email?.split('@')[0] || 'Team Member',
+          message,
+          permissions
+        );
+      } catch (emailError) {
+        console.warn('Failed to send vulnerability shared email:', emailError);
+      }
+    }
+
+    // Send notifications based on share type
+    if (shareType === 'team' && vulnerabilityDetails) {
+      try {
+        // Send team-based notifications
+        await notificationService.sendVulnerabilitySharedToTeam(
+          shareWith,
+          {
+            cveId: vulnerabilityDetails.cveId,
+            title: vulnerabilityDetails.title,
+            severity: vulnerabilityDetails.severity,
+            cvssScore: vulnerabilityDetails.cvssScore,
+          },
+          user.user_metadata?.display_name || user.email?.split('@')[0] || 'Team Member',
+          message,
+          permissions
+        );
+
+        // Also send email notifications to team members with rate limiting
+        const teamMemberEmails = await teamService.getTeamMemberEmails(shareWith);
+        
+        // Send emails in batches to respect rate limits
+        const batchSize = 3; // Send 3 emails at a time
+        const batchDelay = 2000; // Wait 2 seconds between batches
+        
+        for (let i = 0; i < teamMemberEmails.length; i += batchSize) {
+          const batch = teamMemberEmails.slice(i, i + batchSize);
+          
+          const emailPromises = batch.map(email =>
+            emailService.sendVulnerabilitySharedNotification(
+              email,
+              vulnerabilityDetails,
+              user.user_metadata?.display_name || user.email?.split('@')[0] || 'Team Member',
+              message,
+              permissions
+            ).catch(emailError => {
+              console.warn(`Failed to send email to ${email}:`, emailError);
+            })
+          );
+          
+          await Promise.allSettled(emailPromises);
+          
+          // Wait between batches (except for the last batch)
+          if (i + batchSize < teamMemberEmails.length) {
+            await new Promise(resolve => setTimeout(resolve, batchDelay));
+          }
+        }
+      } catch (error) {
+        console.warn('Error sending team notifications for shared vulnerability:', error);
+      }
+    } else if (shareType === 'user' && vulnerabilityDetails) {
+      try {
+        // Send individual user notification
+        await notificationService.sendNotification(
+          shareWith, // This should be userId, but we're using email for now
+          'vulnerability_shared',
+          `Vulnerability Shared: ${vulnerabilityDetails.cveId}`,
+          `${user.user_metadata?.display_name || user.email?.split('@')[0] || 'User'} shared a ${vulnerabilityDetails.severity} vulnerability "${vulnerabilityDetails.title}" with you${message ? `: ${message}` : ''}`,
+          {
+            vulnerabilityId: vulnerabilityDetails.cveId,
+            sharedBy: user.id,
+            shareType,
+            permissions,
+            message,
+          },
+          vulnerabilityDetails.severity === 'CRITICAL' ? 'critical' : 
+          vulnerabilityDetails.severity === 'HIGH' ? 'high' : 'medium'
+        );
+      } catch (error) {
+        console.warn('Error sending individual notification for shared vulnerability:', error);
+      }
+    }
 
     return NextResponse.json(sharedVulnerability, { status: 201 });
   } catch (error) {

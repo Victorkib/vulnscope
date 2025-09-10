@@ -3,6 +3,7 @@ import { getDatabase } from '@/lib/mongodb';
 import { getServerUser } from '@/lib/supabase-server';
 import { reputationService } from '@/lib/reputation-service';
 import type { UserReputation } from '@/types/community';
+import { ObjectId } from 'mongodb';
 
 export async function GET(
   request: Request,
@@ -25,6 +26,7 @@ export async function GET(
     if (!reputation) {
       // Create initial reputation record
       reputation = {
+        _id: new ObjectId(),
         userId,
         totalScore: 0,
         level: 1,

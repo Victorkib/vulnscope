@@ -129,9 +129,9 @@ export function useVulnerabilityDetails(cveId: string) {
 
       // Use Promise.allSettled to handle partial failures gracefully
       const [vulnResult, relatedResult, commentsResult] = await Promise.allSettled([
-        apiClient.get(`/api/vulnerabilities/${cveId}`, { cache: true, cacheTTL: 300000 }),
-        apiClient.get(`/api/vulnerabilities/${cveId}/related`, { cache: true, cacheTTL: 600000 }),
-        apiClient.get(`/api/vulnerabilities/${cveId}/comments`, { cache: true, cacheTTL: 120000 }),
+        apiClient.get(`/api/vulnerabilities/${cveId}`, { enableCache: true, cacheTTL: 300000 }),
+        apiClient.get(`/api/vulnerabilities/${cveId}/related`, { enableCache: true, cacheTTL: 600000 }),
+        apiClient.get(`/api/vulnerabilities/${cveId}/comments`, { enableCache: true, cacheTTL: 120000 }),
       ]);
 
       // Handle vulnerability data
@@ -207,7 +207,7 @@ export function useVulnerabilitiesList(filters: Record<string, any> = {}) {
       });
 
       const result = await apiClient.get(`/api/vulnerabilities?${queryParams.toString()}`, {
-        cache: true,
+        enableCache: true,
         cacheTTL: 120000, // 2 minutes cache
       });
 
@@ -247,19 +247,19 @@ export function useUserData() {
       // Use Promise.allSettled to handle partial failures gracefully
       const [statsResult, activityResult, bookmarksResult, searchesResult] = await Promise.allSettled([
         apiClient.get('/api/users/stats', { 
-          cache: true, 
+          enableCache: true, 
           cacheTTL: 300000 // 5 minutes cache
         }),
         apiClient.get('/api/users/activity?limit=20', { 
-          cache: true, 
+          enableCache: true, 
           cacheTTL: 120000 // 2 minutes cache
         }),
         apiClient.get('/api/users/bookmarks', { 
-          cache: true, 
+          enableCache: true, 
           cacheTTL: 180000 // 3 minutes cache
         }),
         apiClient.get('/api/users/saved-searches', { 
-          cache: true, 
+          enableCache: true, 
           cacheTTL: 600000 // 10 minutes cache
         }),
       ]);
@@ -374,53 +374,4 @@ export function useUserData() {
   };
 }
 
-export function useUserPreferences() {
-  const [preferences, setPreferences] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  const fetchPreferences = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const result = await apiClient.get('/api/users/preferences', {
-        cache: true,
-        cacheTTL: 600000, // 10 minutes cache
-      });
-
-      setPreferences(result);
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error('Failed to fetch user preferences');
-      setError(error);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const savePreferences = useCallback(async (newPreferences: any) => {
-    try {
-      await apiClient.put('/api/users/preferences', newPreferences);
-      
-      // Update local state optimistically
-      setPreferences(newPreferences);
-      
-      // Clear cache to ensure fresh data on next fetch
-      apiClient.clearCache('/api/users/preferences');
-      
-      return true;
-    } catch (error) {
-      console.error('Failed to save preferences:', error);
-      throw error;
-    }
-  }, []);
-
-  return {
-    preferences,
-    loading,
-    error,
-    fetchPreferences,
-    savePreferences,
-    setPreferences,
-  };
-}
+// Legacy hook removed - use usePreferences from contexts/preferences-context instead

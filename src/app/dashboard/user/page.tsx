@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useTheme } from '@/components/theme/theme-provider';
+import { usePreferences } from '@/contexts/preferences-context';
 import { useRealtimeData } from '@/hooks/use-realtime-data';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import AppLayout from '@/components/layout/app-layout';
 import { useToast } from '@/hooks/use-toast';
 import { useUserData } from '@/hooks/use-api';
+import { formatRelativeTime, getSeverityBadgeColor } from '@/lib/utils';
 import type { Vulnerability } from '@/types/vulnerability';
 import {
   Plus,
@@ -49,7 +51,7 @@ interface SavedSearch {
 
 export default function UserDashboardPage() {
   const { user } = useAuth();
-  const { preferences } = useTheme();
+  const { preferences } = usePreferences();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -350,7 +352,7 @@ export default function UserDashboardPage() {
 
         {/* Main Content Tabs */}
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:grid-cols-5 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
+          <TabsList className="grid w-full grid-cols-3 lg:grid-cols-6 lg:w-auto bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm">
             <TabsTrigger
               value="overview"
               className="flex items-center space-x-2"
@@ -374,6 +376,16 @@ export default function UserDashboardPage() {
             >
               <ActivityIcon className="h-4 w-4" />
               <span>Activity</span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="recent-views"
+              className="flex items-center space-x-2"
+            >
+              <Eye className="h-4 w-4" />
+              <span>Recent Views</span>
+              <Badge variant="secondary" className="ml-1">
+                {activities.filter(activity => activity.type === 'view').length}
+              </Badge>
             </TabsTrigger>
             <TabsTrigger
               value="searches"
@@ -471,6 +483,76 @@ export default function UserDashboardPage() {
               isLoading={loading}
               onRefresh={handleRefresh}
             />
+          </TabsContent>
+
+          <TabsContent value="recent-views" className="space-y-6">
+            <Card className="border-0 shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Eye className="h-5 w-5 text-green-500" />
+                  <span>Recent Vulnerability Views</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {activities.filter(activity => activity.type === 'view').length > 0 ? (
+                  <div className="space-y-3">
+                    {activities
+                      .filter(activity => activity.type === 'view')
+                      .slice(0, 10)
+                      .map((activity) => (
+                        <div
+                          key={activity.id}
+                          className="p-4 border border-gray-200 dark:border-gray-700 rounded-xl hover:border-green-300 dark:hover:border-green-600 transition-colors bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 hover:from-green-50 hover:to-emerald-50 dark:hover:from-green-900/20 dark:hover:to-emerald-900/20 cursor-pointer"
+                          onClick={() => handleViewVulnerability(activity.vulnerabilityId || '')}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-2 mb-1">
+                                <span className="font-mono text-sm text-green-600 dark:text-green-400 font-medium">
+                                  {activity.vulnerabilityId}
+                                </span>
+                                {activity.vulnerability && (
+                                  <Badge 
+                                    variant="outline" 
+                                    className={getSeverityBadgeColor(activity.vulnerability.severity)}
+                                  >
+                                    {activity.vulnerability.severity}
+                                  </Badge>
+                                )}
+                              </div>
+                              {activity.vulnerability && (
+                                <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                                  {activity.vulnerability.title}
+                                </p>
+                              )}
+                              <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                                Viewed {formatRelativeTime(activity.timestamp)}
+                              </p>
+                            </div>
+                            <Button variant="ghost" size="sm">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Eye className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+                      No Recent Views
+                    </h3>
+                    <p className="text-gray-600 dark:text-gray-400 mb-4">
+                      Start exploring vulnerabilities to see your viewing history here
+                    </p>
+                    <Button onClick={() => router.push('/vulnerabilities')}>
+                      <Search className="h-4 w-4 mr-2" />
+                      Browse Vulnerabilities
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="searches" className="space-y-6">

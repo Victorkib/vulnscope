@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { useTheme } from '@/components/theme/theme-provider';
+import { usePreferences } from '@/contexts/preferences-context';
 import {
   Collapsible,
   CollapsibleContent,
@@ -131,14 +131,14 @@ export default function SearchFilters({
 }: SearchFiltersProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [customSoftware, setCustomSoftware] = useState('');
-  const { preferences } = useTheme();
+  const { preferences } = usePreferences();
 
-  const updateFilters = (key: string, value: unknown) => {
+  const updateFilters = useCallback((key: string, value: unknown) => {
     onFiltersChange({
       ...filters,
       [key]: value,
     });
-  };
+  }, [filters, onFiltersChange]);
 
   const toggleSeverity = (severity: string) => {
     const newSeverities = filters.severities.includes(severity)
@@ -236,25 +236,25 @@ export default function SearchFilters({
   };
 
   return (
-    <Card className={`bg-white/5 border-white/10 backdrop-blur-sm ${getHighContrastClass()}`}>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-white flex items-center space-x-2">
-            <Search className="h-5 w-5 text-blue-400" />
+    <Card className={`bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 shadow-lg ${getHighContrastClass()}`}>
+      <CardHeader className="pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between space-y-3 sm:space-y-0">
+          <CardTitle className="text-gray-900 dark:text-white flex items-center space-x-2">
+            <Search className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             <span>Search & Filters</span>
             {getActiveFilterCount() > 0 && (
-              <Badge className="bg-blue-500/20 text-blue-300 border-blue-500/30">
+              <Badge className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-500/30">
                 {getActiveFilterCount()} active
               </Badge>
             )}
           </CardTitle>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
             <Select
               onValueChange={(format) =>
                 onExport(format as 'json' | 'csv' | 'pdf')
               }
             >
-              <SelectTrigger className="w-32 bg-white/10 border-white/20 text-white">
+              <SelectTrigger className="w-full sm:w-32 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white">
                 <Download className="h-4 w-4 mr-2" />
                 <SelectValue placeholder="Export" />
               </SelectTrigger>
@@ -269,7 +269,7 @@ export default function SearchFilters({
               size="sm"
               onClick={clearAllFilters}
               disabled={getActiveFilterCount() === 0}
-              className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+              className="w-full sm:w-auto bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-600"
             >
               <X className="h-4 w-4 mr-2" />
               Clear
@@ -280,14 +280,14 @@ export default function SearchFilters({
       <CardContent className="space-y-6">
         {/* Search Input */}
         <div className="space-y-2">
-          <Label className="text-white/80">Search Vulnerabilities</Label>
+          <Label className="text-gray-700 dark:text-gray-300">Search Vulnerabilities</Label>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-white/40" />
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
             <Input
               placeholder="Search by CVE ID, title, or description..."
               value={filters.searchText}
               onChange={(e) => updateFilters('searchText', e.target.value)}
-              className={`pl-10 bg-white/10 border-white/20 text-white placeholder:text-white/40 ${getFontSizeClass()}`}
+              className={`pl-10 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-gray-400 ${getFontSizeClass()}`}
             />
           </div>
         </div>
@@ -302,8 +302,8 @@ export default function SearchFilters({
             onClick={() => toggleSeverity('CRITICAL')}
             className={
               filters.severities.includes('CRITICAL')
-                ? 'bg-red-500 hover:bg-red-600'
-                : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                ? 'bg-red-500 hover:bg-red-600 text-white'
+                : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-600'
             }
           >
             Critical Only
@@ -314,8 +314,8 @@ export default function SearchFilters({
             onClick={() => toggleSource('NVD')}
             className={
               filters.sources.includes('NVD')
-                ? 'bg-blue-500 hover:bg-blue-600'
-                : 'bg-white/10 border-white/20 text-white hover:bg-white/20'
+                ? 'bg-blue-500 hover:bg-blue-600 text-white'
+                : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-600'
             }
           >
             NVD Only
@@ -324,20 +324,20 @@ export default function SearchFilters({
             variant="outline"
             size="sm"
             onClick={() => updateFilters('cvssRange', [7, 10])}
-            className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+            className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-600"
           >
             High CVSS (7+)
           </Button>
         </div>
 
-        <Separator className="bg-white/10" />
+        <Separator className="bg-gray-200 dark:bg-gray-700" />
 
         {/* Advanced Filters */}
         <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
           <CollapsibleTrigger asChild>
             <Button
               variant="ghost"
-              className="w-full justify-between text-white hover:bg-white/10"
+              className="w-full justify-between text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               <div className="flex items-center space-x-2">
                 <Settings className="h-4 w-4" />
@@ -353,7 +353,7 @@ export default function SearchFilters({
           <CollapsibleContent className="space-y-6 mt-4">
             {/* Severity Filter */}
             <div className="space-y-3">
-              <Label className="text-white/80 flex items-center space-x-2">
+              <Label className="text-gray-700 dark:text-gray-300 flex items-center space-x-2">
                 <Shield className="h-4 w-4" />
                 <span>Severity Levels</span>
               </Label>
@@ -367,11 +367,11 @@ export default function SearchFilters({
                       id={`severity-${option.value}`}
                       checked={filters.severities.includes(option.value)}
                       onCheckedChange={() => toggleSeverity(option.value)}
-                      className="border-white/20"
+                      className="border-gray-300 dark:border-gray-600"
                     />
                     <Label
                       htmlFor={`severity-${option.value}`}
-                      className="text-white/80 cursor-pointer"
+                      className="text-gray-700 dark:text-gray-300 cursor-pointer"
                     >
                       {option.label}
                     </Label>
@@ -382,7 +382,7 @@ export default function SearchFilters({
 
             {/* CVSS Score Range */}
             <div className="space-y-3">
-              <Label className="text-white/80">
+              <Label className="text-gray-700 dark:text-gray-300">
                 CVSS Score Range: {filters.cvssRange[0]} -{' '}
                 {filters.cvssRange[1]}
               </Label>
@@ -394,7 +394,7 @@ export default function SearchFilters({
                 step={0.1}
                 className="w-full"
               />
-              <div className="flex justify-between text-xs text-white/60">
+              <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                 <span>0.0 (Low)</span>
                 <span>10.0 (Critical)</span>
               </div>
@@ -402,7 +402,7 @@ export default function SearchFilters({
 
             {/* Source Filter */}
             <div className="space-y-3">
-              <Label className="text-white/80 flex items-center space-x-2">
+              <Label className="text-gray-700 dark:text-gray-300 flex items-center space-x-2">
                 <Database className="h-4 w-4" />
                 <span>Data Sources</span>
               </Label>
@@ -418,11 +418,11 @@ export default function SearchFilters({
                         id={`source-${option.value}`}
                         checked={filters.sources.includes(option.value)}
                         onCheckedChange={() => toggleSource(option.value)}
-                        className="border-white/20"
+                        className="border-gray-300 dark:border-gray-600"
                       />
                       <Label
                         htmlFor={`source-${option.value}`}
-                        className="text-white/80 cursor-pointer flex items-center space-x-2"
+                        className="text-gray-700 dark:text-gray-300 cursor-pointer flex items-center space-x-2"
                       >
                         <Icon className="h-3 w-3" />
                         <span>{option.label}</span>
@@ -435,7 +435,7 @@ export default function SearchFilters({
 
             {/* Affected Software */}
             <div className="space-y-3">
-              <Label className="text-white/80 flex items-center space-x-2">
+              <Label className="text-gray-700 dark:text-gray-300 flex items-center space-x-2">
                 <Code className="h-4 w-4" />
                 <span>Affected Software</span>
               </Label>
@@ -453,7 +453,7 @@ export default function SearchFilters({
                     className={`cursor-pointer transition-colors ${
                       filters.affectedSoftware.includes(software)
                         ? 'bg-blue-500 text-white'
-                        : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'
+                        : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-600'
                     }`}
                     onClick={() => toggleSoftware(software)}
                   >
@@ -469,12 +469,12 @@ export default function SearchFilters({
                   value={customSoftware}
                   onChange={(e) => setCustomSoftware(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && addCustomSoftware()}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40"
+                  className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white placeholder:text-gray-500 dark:placeholder:text-gray-400"
                 />
                 <Button
                   onClick={addCustomSoftware}
                   disabled={!customSoftware.trim()}
-                  className="bg-blue-500 hover:bg-blue-600"
+                  className="bg-blue-500 hover:bg-blue-600 text-white"
                 >
                   Add
                 </Button>
@@ -483,14 +483,14 @@ export default function SearchFilters({
               {/* Selected Software */}
               {filters.affectedSoftware.length > 0 && (
                 <div className="space-y-2">
-                  <Label className="text-white/60 text-sm">
+                  <Label className="text-gray-500 dark:text-gray-400 text-sm">
                     Selected Software:
                   </Label>
                   <div className="flex flex-wrap gap-2">
                     {filters.affectedSoftware.map((software) => (
                       <Badge
                         key={software}
-                        className="bg-blue-500/20 text-blue-300 border-blue-500/30"
+                        className="bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-500/30"
                       >
                         {software}
                         <X
@@ -506,7 +506,7 @@ export default function SearchFilters({
 
             {/* Advanced Filters */}
             <div className="space-y-4">
-              <Label className="text-white/80 flex items-center space-x-2">
+              <Label className="text-gray-700 dark:text-gray-300 flex items-center space-x-2">
                 <Settings className="h-4 w-4" />
                 <span>Advanced Filters</span>
               </Label>
@@ -519,9 +519,9 @@ export default function SearchFilters({
                     id="exploitAvailable"
                     checked={filters.exploitAvailable === true}
                     onChange={(e) => updateFilters('exploitAvailable', e.target.checked ? true : undefined)}
-                    className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                   />
-                  <Label htmlFor="exploitAvailable" className="text-white/80 text-sm">
+                  <Label htmlFor="exploitAvailable" className="text-gray-700 dark:text-gray-300 text-sm">
                     Exploit Available
                   </Label>
                 </div>
@@ -531,9 +531,9 @@ export default function SearchFilters({
                     id="patchAvailable"
                     checked={filters.patchAvailable === true}
                     onChange={(e) => updateFilters('patchAvailable', e.target.checked ? true : undefined)}
-                    className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                   />
-                  <Label htmlFor="patchAvailable" className="text-white/80 text-sm">
+                  <Label htmlFor="patchAvailable" className="text-gray-700 dark:text-gray-300 text-sm">
                     Patch Available
                   </Label>
                 </div>
@@ -543,9 +543,9 @@ export default function SearchFilters({
                     id="kev"
                     checked={filters.kev === true}
                     onChange={(e) => updateFilters('kev', e.target.checked ? true : undefined)}
-                    className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                   />
-                  <Label htmlFor="kev" className="text-white/80 text-sm">
+                  <Label htmlFor="kev" className="text-gray-700 dark:text-gray-300 text-sm">
                     Known Exploited (KEV)
                   </Label>
                 </div>
@@ -555,9 +555,9 @@ export default function SearchFilters({
                     id="trending"
                     checked={filters.trending === true}
                     onChange={(e) => updateFilters('trending', e.target.checked ? true : undefined)}
-                    className="rounded border-white/20 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                   />
-                  <Label htmlFor="trending" className="text-white/80 text-sm">
+                  <Label htmlFor="trending" className="text-gray-700 dark:text-gray-300 text-sm">
                     Trending
                   </Label>
                 </div>
@@ -565,7 +565,7 @@ export default function SearchFilters({
 
               {/* Category Filter */}
               <div className="space-y-3">
-                <Label className="text-white/80 text-sm">Categories</Label>
+                <Label className="text-gray-700 dark:text-gray-300 text-sm">Categories</Label>
                 <div className="flex flex-wrap gap-2">
                   {CATEGORY_OPTIONS.map((category) => (
                     <Badge
@@ -578,7 +578,7 @@ export default function SearchFilters({
                       className={`cursor-pointer transition-colors ${
                         (filters.category || []).includes(category.value)
                           ? 'bg-blue-500 text-white'
-                          : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'
+                          : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-600'
                       }`}
                       onClick={() => toggleCategory(category.value)}
                     >
@@ -590,7 +590,7 @@ export default function SearchFilters({
 
               {/* Tags Filter */}
               <div className="space-y-3">
-                <Label className="text-white/80 text-sm">Common Tags</Label>
+                <Label className="text-gray-700 dark:text-gray-300 text-sm">Common Tags</Label>
                 <div className="flex flex-wrap gap-2">
                   {TAG_OPTIONS.map((tag) => (
                     <Badge
@@ -603,7 +603,7 @@ export default function SearchFilters({
                       className={`cursor-pointer transition-colors text-xs ${
                         (filters.tags || []).includes(tag)
                           ? 'bg-purple-500 text-white'
-                          : 'bg-white/10 border-white/20 text-white/80 hover:bg-white/20'
+                          : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-600'
                       }`}
                       onClick={() => toggleTag(tag)}
                     >
@@ -618,9 +618,9 @@ export default function SearchFilters({
 
         {/* Filter Summary */}
         {getActiveFilterCount() > 0 && (
-          <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+          <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-500/30 rounded-lg">
             <div className="flex items-center justify-between">
-              <div className="text-sm text-blue-300">
+              <div className="text-sm text-blue-700 dark:text-blue-300">
                 <strong>{getActiveFilterCount()}</strong> filter
                 {getActiveFilterCount() > 1 ? 's' : ''} applied
               </div>
@@ -628,7 +628,7 @@ export default function SearchFilters({
                 variant="ghost"
                 size="sm"
                 onClick={clearAllFilters}
-                className="text-blue-300 hover:text-white hover:bg-blue-500/20"
+                className="text-blue-700 dark:text-blue-300 hover:text-blue-900 dark:hover:text-blue-100 hover:bg-blue-100 dark:hover:bg-blue-500/20"
               >
                 <RefreshCw className="h-3 w-3 mr-1" />
                 Reset

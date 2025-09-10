@@ -415,3 +415,50 @@
     @apply w-full;
   }
 }
+
+/* Font Size Classes for User Preferences */
+.font-size-small {
+  font-size: calc(0.875rem * var(--font-scale, 1));
+  line-height: 1.25rem;
+}
+
+.font-size-medium {
+  font-size: calc(1rem * var(--font-scale, 1));
+  line-height: 1.5rem;
+}
+
+.font-size-large {
+  font-size: calc(1.125rem * var(--font-scale, 1));
+  line-height: 1.75rem;
+}
+
+/* Layout Classes for User Preferences */
+.layout-compact {
+  --layout-spacing: 0.5rem;
+  --card-padding: 1rem;
+}
+
+.layout-comfortable {
+  --layout-spacing: 1rem;
+  --card-padding: 1.5rem;
+}
+
+.layout-spacious {
+  --layout-spacing: 2rem;
+  --card-padding: 2rem;
+}
+
+/* Accessibility Classes */
+.high-contrast {
+  --contrast-multiplier: 1.5;
+}
+
+.reduce-motion {
+  --motion-scale: 0;
+}
+
+.screen-reader-optimized {
+  --a11y-font-scale: 1.1;
+  --a11y-line-height: 1.6;
+  --a11y-letter-spacing: 0.025em;
+}

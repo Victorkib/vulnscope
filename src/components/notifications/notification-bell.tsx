@@ -31,14 +31,6 @@ export default function NotificationBell({ className }: NotificationBellProps) {
     deleteNotification,
   } = useRealtimeNotifications();
 
-  // Debug logging
-  console.log('NotificationBell render:', {
-    notificationsCount: notifications.length,
-    isConnected,
-    unreadCount,
-    isOpen,
-    notifications: notifications.slice(0, 2) // Show first 2 notifications for debugging
-  });
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {

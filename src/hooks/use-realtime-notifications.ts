@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/auth/auth-provider';
-import { useTheme } from '@/components/theme/theme-provider';
+import { usePreferences } from '@/contexts/preferences-context';
 import { useToast } from '@/hooks/use-toast';
 import type { RealtimeNotification, Notification } from '@/types/notification';
 
@@ -61,7 +61,7 @@ export function useRealtimeNotifications({
   pollingInterval = 30000, // 30 seconds
 }: UseRealtimeNotificationsOptions = {}) {
   const { user } = useAuth();
-  const { preferences } = useTheme();
+  const { preferences } = usePreferences();
   const { toast } = useToast();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isConnected, setIsConnected] = useState(false);

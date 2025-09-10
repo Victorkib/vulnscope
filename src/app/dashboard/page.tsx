@@ -4,9 +4,13 @@ import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
 import { useTheme } from '@/components/theme/theme-provider';
+import { usePreferences } from '@/contexts/preferences-context';
 import { useRealtimeData } from '@/hooks/use-realtime-data';
 import RealtimeStatus from '@/components/dashboard/realtime-status';
-import TestNotificationButton from '@/components/test/test-notification-button';
+import IntelligenceOverview from '@/components/dashboard/intelligence-overview';
+import SecurityPostureCard from '@/components/dashboard/security-posture-card';
+import ThreatIntelligenceAlerts from '@/components/dashboard/threat-intelligence-alerts';
+import VulnerabilityTrends from '@/components/charts/vulnerability-trends';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +32,6 @@ import {
   Clock,
   CheckCircle,
   Download,
-  Plus,
   ArrowUpRight,
   ArrowDownRight,
   BarChart3,
@@ -57,9 +60,18 @@ interface QuickAction {
   href: string;
 }
 
+interface TrendData {
+  date: string;
+  CRITICAL: number;
+  HIGH: number;
+  MEDIUM: number;
+  LOW: number;
+}
+
 export default function DashboardPage() {
   const { user } = useAuth();
   const { preferences, updatePreference } = useTheme();
+  const { preferences: userPreferences } = usePreferences();
   const { toast } = useToast();
   const router = useRouter();
 
@@ -92,6 +104,7 @@ export default function DashboardPage() {
     recentlyPublished: 0,
     lastUpdated: new Date().toISOString(),
   });
+  const [trendData, setTrendData] = useState<TrendData[]>([]);
   const [loading, setLoading] = useState(true);
   const [realtimeEnabled, setRealtimeEnabled] = useState(false);
 
@@ -131,23 +144,32 @@ export default function DashboardPage() {
       console.log('Fetching dashboard data...');
       setLoading(true);
       
-      const [vulnsRes, dashboardStatsRes] = await Promise.all([
+      const [vulnsRes, dashboardStatsRes, trendsRes] = await Promise.all([
         apiClient.get('/api/vulnerabilities?limit=10', { 
-          cache: true, 
+          enableCache: true, 
           cacheTTL: 120000 // 2 minutes cache
         }),
         apiClient.get('/api/vulnerabilities/dashboard-stats', { 
-          cache: true, 
+          enableCache: true, 
+          cacheTTL: 300000 // 5 minutes cache
+        }),
+        apiClient.get('/api/vulnerabilities/trends?days=30', { 
+          enableCache: true, 
           cacheTTL: 300000 // 5 minutes cache
         }),
       ]);
 
-      console.log('API responses:', { vulnsRes: vulnsRes, dashboardStatsRes: dashboardStatsRes });
+      console.log('API responses:', { vulnsRes: vulnsRes, dashboardStatsRes: dashboardStatsRes, trendsRes: trendsRes });
 
       // Handle vulnerabilities data
       const vulnsData = vulnsRes;
       console.log('Vulnerabilities data:', vulnsData);
       setVulnerabilities(vulnsData.vulnerabilities || []);
+
+      // Handle trends data
+      const trendsData = trendsRes;
+      console.log('Trends data:', trendsData);
+      setTrendData(trendsData || []);
 
       // Handle dashboard stats data
       const dashboardData = dashboardStatsRes;
@@ -332,13 +354,6 @@ export default function DashboardPage() {
               {realtimeEnabled ? 'Disable' : 'Enable'} Auto-refresh
             </Button>
           </div>
-          <div className="flex items-center space-x-3">
-            <TestNotificationButton />
-            <Button>
-              <Plus className="w-4 h-4 mr-2" />
-              New Scan
-            </Button>
-          </div>
         </div>
 
         {/* Metrics Grid */}
@@ -458,9 +473,9 @@ export default function DashboardPage() {
         </div>
 
         {/* Main Content */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
           {/* Left Column - Charts */}
-          <div className="xl:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-4 lg:space-y-6">
             {/* Quick Actions */}
             <Card className="border-0 shadow-lg">
               <CardHeader>
@@ -470,12 +485,12 @@ export default function DashboardPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
                   {quickActions.map((action, index) => (
                     <Button
                       key={index}
                       variant="outline"
-                      className="h-auto p-4 flex flex-col items-center space-y-2 hover:shadow-md transition-shadow bg-transparent"
+                      className="h-auto p-3 lg:p-4 flex flex-col items-center space-y-2 hover:shadow-md transition-shadow bg-transparent"
                       onClick={() => router.push(action.href)}
                     >
                       <div className="w-10 h-10 rounded-full flex items-center justify-center bg-blue-100 dark:bg-blue-900">
@@ -495,31 +510,16 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
+            {/* Intelligence Overview */}
+            <IntelligenceOverview 
+              compact={userPreferences?.dashboardLayout === 'compact'}
+            />
+
             {/* Vulnerability Trends */}
-            <Card className="border-0 shadow-lg">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center space-x-2">
-                    <BarChart3 className="w-5 h-5 text-purple-600" />
-                    <span>Vulnerability Trends</span>
-                  </CardTitle>
-                  <Button variant="outline" size="sm">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Last 30 days
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="h-64 flex items-center justify-center bg-gray-50 dark:bg-gray-800 rounded-lg">
-                  <div className="text-center">
-                    <PieChart className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                    <p className="text-gray-600 dark:text-gray-400">
-                      Interactive chart will be displayed here
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <VulnerabilityTrends 
+              data={trendData} 
+              isLoading={loading}
+            />
 
             {/* Recent Vulnerabilities */}
             <Card className="border-0 shadow-lg">
@@ -549,23 +549,23 @@ export default function DashboardPage() {
                         router.push(`/vulnerabilities/${vuln.cveId}`)
                       }
                     >
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-3 min-w-0 flex-1">
                         <div
-                          className={`w-3 h-3 rounded-full ${getSeverityColor(
+                          className={`w-3 h-3 rounded-full flex-shrink-0 ${getSeverityColor(
                             vuln.severity
                           )}`}
                         ></div>
-                        <div>
+                        <div className="min-w-0 flex-1">
                           <div className="font-medium text-sm">
                             {vuln.cveId}
                           </div>
-                          <div className="text-xs text-gray-600 dark:text-gray-400 truncate max-w-md">
+                          <div className="text-xs text-gray-600 dark:text-gray-400 truncate">
                             {vuln.title}
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <Badge variant="outline" className="text-xs">
+                      <div className="flex items-center space-x-2 flex-shrink-0">
+                        <Badge variant="outline" className="text-xs hidden sm:inline-flex">
                           {vuln.severity}
                         </Badge>
                         <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
@@ -580,7 +580,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Right Column - Stats & Activity */}
-          <div className="space-y-6">
+          <div className="space-y-4 lg:space-y-6">
             {/* Weekly Summary */}
             <Card className="border-0 shadow-lg">
               <CardHeader>
@@ -629,6 +629,17 @@ export default function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Security Posture Card */}
+            <SecurityPostureCard 
+              compact={userPreferences?.dashboardLayout === 'compact'}
+            />
+
+            {/* Threat Intelligence Alerts */}
+            <ThreatIntelligenceAlerts 
+              maxAlerts={3}
+              showAcknowledged={false}
+            />
 
             {/* Quick Stats */}
             <Card className="border-0 shadow-lg">

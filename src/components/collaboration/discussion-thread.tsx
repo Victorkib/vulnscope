@@ -6,9 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { useTheme } from '@/components/theme/theme-provider';
+import { usePreferences } from '@/contexts/preferences-context';
 import { formatRelativeTime } from '@/lib/utils';
+import { apiClient } from '@/lib/api-client';
 import {
   MessageSquare,
   Send,
@@ -34,8 +38,12 @@ export default function DiscussionThread({ vulnerabilityId, className }: Discuss
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [newDiscussionTitle, setNewDiscussionTitle] = useState('');
+  const [newDiscussionDescription, setNewDiscussionDescription] = useState('');
+  const [creatingDiscussion, setCreatingDiscussion] = useState(false);
   const { toast } = useToast();
-  const { preferences } = useTheme();
+  const { preferences } = usePreferences();
 
   useEffect(() => {
     fetchDiscussions();
@@ -49,16 +57,13 @@ export default function DiscussionThread({ vulnerabilityId, className }: Discuss
 
   const fetchDiscussions = async () => {
     try {
-      const response = await fetch(`/api/discussions?vulnerabilityId=${vulnerabilityId}`, {
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+      const data = await apiClient.get(`/api/discussions?vulnerabilityId=${vulnerabilityId}`, {
+        enableCache: true,
+        cacheTTL: 120000, // 2 minutes cache
       });
-      if (response.ok) {
-        const data = await response.json();
-        setDiscussions(data);
-        if (data.length > 0) {
-          setSelectedDiscussion(data[0]);
-        }
+      setDiscussions(data);
+      if (data.length > 0) {
+        setSelectedDiscussion(data[0]);
       }
     } catch (error) {
       console.error('Error fetching discussions:', error);
@@ -69,14 +74,11 @@ export default function DiscussionThread({ vulnerabilityId, className }: Discuss
 
   const fetchMessages = async (discussionId: string) => {
     try {
-      const response = await fetch(`/api/discussions/${discussionId}/messages`, {
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+      const data = await apiClient.get(`/api/discussions/${discussionId}/messages`, {
+        enableCache: true,
+        cacheTTL: 60000, // 1 minute cache
       });
-      if (response.ok) {
-        const data = await response.json();
-        setMessages(data);
-      }
+      setMessages(data);
     } catch (error) {
       console.error('Error fetching messages:', error);
     }
@@ -87,32 +89,54 @@ export default function DiscussionThread({ vulnerabilityId, className }: Discuss
 
     try {
       setSending(true);
-      const response = await fetch(`/api/discussions/${selectedDiscussion.id}/messages`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: newMessage }),
+      const message = await apiClient.post(`/api/discussions/${selectedDiscussion.id}/messages`, {
+        content: newMessage,
       });
-
-      if (response.ok) {
-        const message = await response.json();
-        setMessages(prev => [...prev, message]);
-        setNewMessage('');
-        toast({
-          title: 'Message sent',
-          description: 'Your message has been posted',
-        });
-      } else {
-        throw new Error('Failed to send message');
-      }
+      setMessages(prev => [...prev, message]);
+      setNewMessage('');
+      toast({
+        title: 'Message sent',
+        description: 'Your message has been posted',
+      });
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'Failed to send message',
+        description: error instanceof Error ? error.message : 'Failed to send message',
         variant: 'destructive',
       });
     } finally {
       setSending(false);
+    }
+  };
+
+  const createDiscussion = async () => {
+    if (!newDiscussionTitle.trim() || creatingDiscussion) return;
+
+    try {
+      setCreatingDiscussion(true);
+      const discussion = await apiClient.post('/api/discussions', {
+        vulnerabilityId,
+        title: newDiscussionTitle.trim(),
+        description: newDiscussionDescription.trim() || undefined,
+        isPublic: true,
+      });
+      setDiscussions(prev => [discussion, ...prev]);
+      setSelectedDiscussion(discussion);
+      setNewDiscussionTitle('');
+      setNewDiscussionDescription('');
+      setShowCreateDialog(false);
+      toast({
+        title: 'Discussion created',
+        description: 'Your discussion has been created successfully',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to create discussion',
+        variant: 'destructive',
+      });
+    } finally {
+      setCreatingDiscussion(false);
     }
   };
 
@@ -170,7 +194,7 @@ export default function DiscussionThread({ vulnerabilityId, className }: Discuss
               <p className="text-gray-600 dark:text-gray-400 mb-4">
                 Start the first discussion about this vulnerability
               </p>
-              <Button>
+              <Button onClick={() => setShowCreateDialog(true)}>
                 <MessageSquare className="h-4 w-4 mr-2" />
                 Start Discussion
               </Button>
@@ -317,6 +341,69 @@ export default function DiscussionThread({ vulnerabilityId, className }: Discuss
           </CardContent>
         </Card>
       )}
+
+      {/* Create Discussion Dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2">
+              <MessageSquare className="h-5 w-5 text-blue-600" />
+              <span>Start New Discussion</span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="discussion-title">Discussion Title *</Label>
+              <Input
+                id="discussion-title"
+                type="text"
+                value={newDiscussionTitle}
+                onChange={(e) => setNewDiscussionTitle(e.target.value)}
+                placeholder="Enter discussion title..."
+                className="w-full"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="discussion-description">Description (optional)</Label>
+              <Textarea
+                id="discussion-description"
+                value={newDiscussionDescription}
+                onChange={(e) => setNewDiscussionDescription(e.target.value)}
+                placeholder="Describe what this discussion is about..."
+                className="w-full"
+                rows={4}
+              />
+            </div>
+
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+              <p className="text-sm text-blue-800 dark:text-blue-200">
+                <strong>Tip:</strong> Be specific about what you want to discuss. This helps team members understand the context and contribute effectively.
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCreateDialog(false);
+                setNewDiscussionTitle('');
+                setNewDiscussionDescription('');
+              }}
+              disabled={creatingDiscussion}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={createDiscussion}
+              disabled={!newDiscussionTitle.trim() || creatingDiscussion}
+            >
+              {creatingDiscussion ? 'Creating...' : 'Create Discussion'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

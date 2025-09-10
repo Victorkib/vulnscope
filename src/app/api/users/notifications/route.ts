@@ -117,7 +117,38 @@ export async function POST(request: Request) {
       );
     }
 
+    // Check user notification preferences
     const db = await getDatabase();
+    const preferencesCollection = db.collection('user_preferences');
+    const userPreferences = await preferencesCollection.findOne({ userId: user.id });
+    
+    // Respect user's notification preferences
+    if (userPreferences) {
+      // Skip email notifications if user has disabled them
+      if (type === 'email' && !userPreferences.emailNotifications) {
+        return NextResponse.json({ 
+          message: 'Email notifications disabled by user preferences',
+          skipped: true 
+        });
+      }
+      
+      // Skip push notifications if user has disabled them
+      if (type === 'push' && !userPreferences.pushNotifications) {
+        return NextResponse.json({ 
+          message: 'Push notifications disabled by user preferences',
+          skipped: true 
+        });
+      }
+      
+      // Skip non-critical notifications if user only wants critical alerts
+      if (priority !== 'critical' && userPreferences.criticalAlerts && !userPreferences.emailNotifications) {
+        return NextResponse.json({ 
+          message: 'Non-critical notifications disabled by user preferences',
+          skipped: true 
+        });
+      }
+    }
+
     const collection = db.collection<Notification>('notifications');
 
     const notification: Notification = {

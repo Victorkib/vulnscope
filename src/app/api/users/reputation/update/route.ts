@@ -3,6 +3,7 @@ import { getDatabase } from '@/lib/mongodb';
 import { getServerUser } from '@/lib/supabase-server';
 import { reputationService } from '@/lib/reputation-service';
 import type { UserReputation } from '@/types/community';
+import { ObjectId } from 'mongodb';
 
 export async function POST(request: Request) {
   try {
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
     if (!reputation) {
       // Create initial reputation record
       reputation = {
+        _id: new ObjectId(),
         userId,
         totalScore: 0,
         level: 1,
@@ -77,7 +79,7 @@ export async function POST(request: Request) {
     const votes = await votesCollection.find({ userId }).toArray();
     const commentsCount = await commentsCollection.countDocuments({ userId });
 
-    reputation.totalScore = reputationService.calculateReputationScore(votes, commentsCount);
+    reputation.totalScore = reputationService.calculateReputationScore(votes as any, commentsCount);
     reputation.level = reputationService.calculateUserLevel(reputation.totalScore);
     reputation.badges = reputationService.getEarnedBadges(reputation);
     reputation.updatedAt = new Date().toISOString();

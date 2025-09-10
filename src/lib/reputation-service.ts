@@ -214,6 +214,7 @@ export class ReputationService {
             commentsCount: 0,
             likesReceived: 0,
             dislikesReceived: 0,
+            helpfulComments: 0,
             expertComments: 0,
           },
           createdAt: new Date().toISOString(),

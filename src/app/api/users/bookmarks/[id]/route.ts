@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/mongodb';
 import { getServerUser } from '@/lib/supabase-server';
+import { notificationService } from '@/lib/notification-service';
 
 export async function GET(
   request: NextRequest,
@@ -79,6 +80,18 @@ export async function PUT(
       metadata: { updates },
     });
 
+    // Send notification for bookmark update
+    try {
+      await notificationService.sendBookmarkUpdate(user.id, {
+        vulnerabilityId: id,
+        action: 'updated',
+        title: `Updated bookmark for ${id}`,
+      });
+    } catch (notificationError) {
+      // Log error but don't fail the bookmark update
+      console.error('Error sending bookmark update notification:', notificationError);
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error updating bookmark:', error);
@@ -127,6 +140,18 @@ export async function DELETE(
       vulnerabilityId: id,
       timestamp: new Date().toISOString(),
     });
+
+    // Send notification for bookmark deletion
+    try {
+      await notificationService.sendBookmarkUpdate(user.id, {
+        vulnerabilityId: id,
+        action: 'deleted',
+        title: `Removed bookmark for ${id}`,
+      });
+    } catch (notificationError) {
+      // Log error but don't fail the bookmark deletion
+      console.error('Error sending bookmark deletion notification:', notificationError);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

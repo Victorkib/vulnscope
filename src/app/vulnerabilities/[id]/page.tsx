@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/auth-provider';
-import { useTheme } from '@/components/theme/theme-provider';
+import { usePreferences } from '@/contexts/preferences-context';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,6 +23,7 @@ import ShareVulnerability from '@/components/collaboration/share-vulnerability';
 import CommentItem from '@/components/comments/comment-item';
 import { useToast } from '@/hooks/use-toast';
 import { useVulnerabilityDetails } from '@/hooks/use-api';
+import { useRealtimeComments } from '@/hooks/use-realtime-comments';
 import { apiClient } from '@/lib/api-client';
 import type {
   Vulnerability,
@@ -72,8 +73,11 @@ export default function VulnerabilityDetailsPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
-  const { preferences } = useTheme();
+  const { preferences } = usePreferences();
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState('overview');
+  const [sharedVulnerabilities, setSharedVulnerabilities] = useState<any[]>([]);
+  const [loadingShares, setLoadingShares] = useState(false);
 
   // Apply user preferences for styling
   const getFontSizeClass = () => {
@@ -91,6 +95,7 @@ export default function VulnerabilityDetailsPage() {
   const getAnimationClass = () => {
     return preferences?.reduceMotion ? 'transition-none' : 'transition-colors';
   };
+
 
   const [newComment, setNewComment] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
@@ -112,6 +117,76 @@ export default function VulnerabilityDetailsPage() {
     setComments,
   } = useVulnerabilityDetails(cveId);
 
+  // Real-time comment updates
+  const {
+    isConnected: commentsConnected,
+    connectionError: commentsError,
+    usePolling: commentsPolling,
+  } = useRealtimeComments({
+    vulnerabilityId: cveId,
+    enabled: !!cveId,
+    onCommentAdded: (newComment) => {
+      if (newComment) {
+        // Add new comment to the list
+        setComments((prev) => [newComment, ...prev]);
+        toast({
+          title: 'New Comment',
+          description: `${newComment.userDisplayName} added a comment`,
+        });
+      } else {
+        // Signal to refresh comments (polling detected changes)
+        refetch();
+      }
+    },
+    onCommentUpdated: (updatedComment) => {
+      setComments((prev) =>
+        prev.map((comment) =>
+          comment.id === updatedComment.id ? updatedComment : comment
+        )
+      );
+    },
+    onCommentDeleted: (commentId) => {
+      setComments((prev) => prev.filter((comment) => comment.id !== commentId));
+    },
+    onVoteUpdated: (commentId, likes, dislikes, userVote) => {
+      setComments((prev) =>
+        prev.map((comment) =>
+          comment.id === commentId
+            ? { ...comment, likes, dislikes, userVote }
+            : comment
+        )
+      );
+    },
+  });
+
+  const fetchSharedVulnerabilities = useCallback(async () => {
+    if (!vulnerability?.cveId) return;
+    
+    try {
+      setLoadingShares(true);
+      const shares = await apiClient.get(`/api/vulnerabilities/${vulnerability.cveId}/share`, {
+        enableCache: true,
+        cacheTTL: 120000, // 2 minutes cache
+      });
+      setSharedVulnerabilities(shares);
+    } catch (error) {
+      console.error('Error fetching shared vulnerabilities:', error);
+    } finally {
+      setLoadingShares(false);
+    }
+  }, [vulnerability?.cveId]);
+
+  // Handle instant updates when vulnerability is shared
+  const handleShareSuccess = useCallback((newSharedVulnerability: any) => {
+    setSharedVulnerabilities(prev => [newSharedVulnerability, ...prev]);
+    
+    // Show a success toast for the instant update
+    toast({
+      title: 'Shared Status Updated',
+      description: 'The vulnerability sharing status has been updated instantly',
+    });
+  }, [toast]);
+
   // Handle errors from the hook
   useEffect(() => {
     if (error) {
@@ -122,6 +197,12 @@ export default function VulnerabilityDetailsPage() {
       });
     }
   }, [error, toast]);
+
+  useEffect(() => {
+    if (activeTab === 'collaboration') {
+      fetchSharedVulnerabilities();
+    }
+  }, [activeTab, fetchSharedVulnerabilities]);
 
   const handleSubmitComment = async () => {
     if (!newComment.trim()) return;
@@ -134,12 +215,14 @@ export default function VulnerabilityDetailsPage() {
         isPublic: true,
       });
 
-      // Update local state optimistically
-      setComments((prev) => [comment, ...prev]);
+      // Clear the input field immediately for better UX
       setNewComment('');
       
       // Clear cache to ensure fresh data on next fetch
       apiClient.clearCache(`/api/vulnerabilities/${cveId}/comments`);
+      
+      // Don't update local state here - let real-time subscription handle it
+      // This prevents duplication since real-time will add the comment automatically
       
       toast({
         title: 'Comment Added',
@@ -163,22 +246,11 @@ export default function VulnerabilityDetailsPage() {
         voteType,
       });
 
-      // Update local state optimistically
-      setComments((prev) =>
-        prev.map((comment) =>
-          comment.id === commentId
-            ? { 
-                ...comment, 
-                likes: result.comment.likes,
-                dislikes: result.comment.dislikes,
-                userVote: result.userVote 
-              }
-            : comment
-        )
-      );
-      
       // Clear cache to ensure fresh data on next fetch
       apiClient.clearCache(`/api/vulnerabilities/${cveId}/comments`);
+      
+      // Don't update local state here - let real-time subscription handle it
+      // This prevents duplication since real-time will update the vote counts automatically
       
       toast({
         title: 'Vote recorded',
@@ -223,13 +295,11 @@ export default function VulnerabilityDetailsPage() {
     try {
       await apiClient.delete(`/api/vulnerabilities/${cveId}/comments/${commentId}`);
 
-      // Update local state optimistically
-      setComments((prev) =>
-        prev.filter((comment) => comment.id !== commentId)
-      );
-      
       // Clear cache to ensure fresh data on next fetch
       apiClient.clearCache(`/api/vulnerabilities/${cveId}/comments`);
+      
+      // Don't update local state here - let real-time subscription handle it
+      // This prevents issues since real-time will remove the comment automatically
       
       toast({
         title: 'Comment Deleted',
@@ -254,24 +324,14 @@ export default function VulnerabilityDetailsPage() {
         { action: 'edit', content: editContent }
       );
 
-      // Update local state optimistically
-      setComments((prev) =>
-        prev.map((comment) =>
-          comment.id === commentId
-            ? {
-                ...comment,
-                content: updatedComment.content,
-                updatedAt: updatedComment.updatedAt,
-              }
-            : comment
-        )
-      );
-      
       setEditingComment(null);
       setEditContent('');
       
       // Clear cache to ensure fresh data on next fetch
       apiClient.clearCache(`/api/vulnerabilities/${cveId}/comments`);
+      
+      // Don't update local state here - let real-time subscription handle it
+      // This prevents issues since real-time will update the comment automatically
       
       toast({
         title: 'Comment Updated',
@@ -483,6 +543,18 @@ export default function VulnerabilityDetailsPage() {
             <p className="text-xl text-gray-600 dark:text-gray-300 mb-4">
               {vulnerability.title}
             </p>
+            
+            {/* Shared Status Indicator */}
+            {sharedVulnerabilities.length > 0 && (
+              <div className="mb-4">
+                <div className="inline-flex items-center space-x-2 px-3 py-1 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-full">
+                  <Share2 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <span className="text-sm text-blue-700 dark:text-blue-300">
+                    Shared with {sharedVulnerabilities.length} {sharedVulnerabilities.length === 1 ? 'recipient' : 'recipients'}
+                  </span>
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
               <div className="flex items-center space-x-1">
@@ -623,7 +695,7 @@ export default function VulnerabilityDetailsPage() {
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
-            <Tabs defaultValue="overview" className="space-y-6">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
               <TabsList className="grid w-full grid-cols-6">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="technical">Technical</TabsTrigger>
@@ -937,12 +1009,110 @@ export default function VulnerabilityDetailsPage() {
               </TabsContent>
 
               <TabsContent value="comments" className="space-y-6">
+                {/* Enhanced Real-time Status Indicator */}
+                <Card className="border-0 shadow-sm">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="relative">
+                          <div className={`w-3 h-3 rounded-full ${
+                            commentsConnected 
+                              ? 'bg-green-500 animate-pulse' 
+                              : commentsPolling 
+                              ? 'bg-yellow-500 animate-pulse' 
+                              : 'bg-gray-400'
+                          }`}></div>
+                          {commentsConnected && (
+                            <div className="absolute inset-0 w-3 h-3 rounded-full bg-green-500 animate-ping opacity-75"></div>
+                          )}
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                            {commentsConnected 
+                              ? '🚀 Live Comments Active' 
+                              : commentsPolling 
+                              ? '🔄 Auto-Refresh Mode' 
+                              : '💬 Comments Available'
+                            }
+                          </span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            {commentsConnected 
+                              ? 'Real-time updates enabled • Instant notifications' 
+                              : commentsPolling 
+                              ? 'Checking every 10 seconds • Reliable fallback' 
+                              : 'Offline mode • Comments saved locally'
+                            }
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* Connection Status Actions */}
+                      <div className="flex items-center space-x-2">
+                        {commentsConnected ? (
+                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                            <div className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse"></div>
+                            Live
+                          </Badge>
+                        ) : commentsPolling ? (
+                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                            <div className="w-2 h-2 bg-yellow-500 rounded-full mr-1 animate-pulse"></div>
+                            Polling
+                          </Badge>
+                        ) : (
+                          <div className="flex items-center space-x-2">
+                            <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200">
+                              <div className="w-2 h-2 bg-gray-400 rounded-full mr-1"></div>
+                              Offline
+                            </Badge>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Connection Error Display */}
+                    {commentsError && (
+                      <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                        <div className="flex items-center space-x-2">
+                          <AlertTriangle className="h-4 w-4 text-red-500" />
+                          <span className="text-sm text-red-700 dark:text-red-300">
+                            Connection issue detected
+                          </span>
+                        </div>
+                        <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                          Using reliable fallback mode • Your comments are still saved
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
                 {user && (
                   <Card className="border-0 shadow-lg">
                     <CardHeader>
-                      <CardTitle className="flex items-center space-x-2">
-                        <MessageSquare className="h-5 w-5 text-blue-600" />
-                        <span>Add Comment</span>
+                      <CardTitle className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <MessageSquare className="h-5 w-5 text-blue-600" />
+                          <span>Add Comment</span>
+                        </div>
+                        {/* Connection Status for Comment Form */}
+                        <div className="flex items-center space-x-2">
+                          {commentsConnected ? (
+                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 text-xs">
+                              <div className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1 animate-pulse"></div>
+                              Live
+                            </Badge>
+                          ) : commentsPolling ? (
+                            <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200 text-xs">
+                              <div className="w-1.5 h-1.5 bg-yellow-500 rounded-full mr-1 animate-pulse"></div>
+                              Auto-sync
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-200 text-xs">
+                              <div className="w-1.5 h-1.5 bg-gray-400 rounded-full mr-1"></div>
+                              Offline
+                            </Badge>
+                          )}
+                        </div>
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -955,19 +1125,41 @@ export default function VulnerabilityDetailsPage() {
                           maxLength={2000}
                         />
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-500">
-                            {newComment.length}/2000 characters
-                          </span>
+                          <div className="flex items-center space-x-4">
+                            <span className="text-sm text-gray-500">
+                              {newComment.length}/2000 characters
+                            </span>
+                            {newComment.length > 0 && (
+                              <span className="text-xs text-gray-400">
+                                {commentsConnected 
+                                  ? 'Will appear instantly' 
+                                  : commentsPolling 
+                                  ? 'Will sync automatically' 
+                                  : 'Saved locally'
+                                }
+                              </span>
+                            )}
+                          </div>
                           <Button
                             onClick={handleSubmitComment}
                             disabled={!newComment.trim() || submittingComment}
+                            className="relative"
                           >
                             {submittingComment ? (
-                              <Clock className="h-4 w-4 mr-2 animate-spin" />
+                              <>
+                                <Clock className="h-4 w-4 mr-2 animate-spin" />
+                                {commentsConnected ? 'Posting...' : 'Saving...'}
+                              </>
                             ) : (
-                              <Send className="h-4 w-4 mr-2" />
+                              <>
+                                <Send className="h-4 w-4 mr-2" />
+                                {commentsConnected ? 'Post Live' : 'Post Comment'}
+                              </>
                             )}
-                            Post Comment
+                            {/* Connection indicator on button */}
+                            {commentsConnected && (
+                              <div className="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            )}
                           </Button>
                         </div>
                       </div>
@@ -977,14 +1169,35 @@ export default function VulnerabilityDetailsPage() {
 
                 <Card className="border-0 shadow-lg">
                   <CardHeader>
-                    <CardTitle className="flex items-center space-x-2">
-                      <Users className="h-5 w-5 text-purple-600" />
-                      <span>Community Discussion ({comments.length})</span>
+                    <CardTitle className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Users className="h-5 w-5 text-purple-600" />
+                        <span>Community Discussion ({comments.length})</span>
+                      </div>
+                      {/* Live Activity Indicator */}
+                      {commentsConnected && comments.length > 0 && (
+                        <div className="flex items-center space-x-2">
+                          <div className="flex items-center space-x-1">
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-green-600 dark:text-green-400">
+                              Live updates
+                            </span>
+                          </div>
+                        </div>
+                      )}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     {commentsLoading ? (
                       <div className="space-y-4">
+                        <div className="flex items-center justify-center py-4">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                              Loading comments...
+                            </span>
+                          </div>
+                        </div>
                         {[1, 2, 3].map((i) => (
                           <div key={i} className="animate-pulse">
                             <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-2"></div>
@@ -993,28 +1206,87 @@ export default function VulnerabilityDetailsPage() {
                         ))}
                       </div>
                     ) : comments.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                        <MessageSquare className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>
-                          No comments yet. Be the first to share your insights!
+                      <div className="text-center py-12">
+                        <div className="relative">
+                          <MessageSquare className="h-16 w-16 mx-auto mb-4 opacity-50 text-gray-400" />
+                          {commentsConnected && (
+                            <div className="absolute -top-2 -right-2 w-4 h-4 bg-green-500 rounded-full animate-pulse"></div>
+                          )}
+                        </div>
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+                          Start the Conversation
+                        </h3>
+                        <p className="text-gray-500 dark:text-gray-400 mb-4">
+                          Be the first to share your insights about this vulnerability!
                         </p>
+                        {commentsConnected ? (
+                          <div className="inline-flex items-center space-x-2 px-3 py-1 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-full">
+                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-green-700 dark:text-green-300">
+                              Live comments ready
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center space-x-2 px-3 py-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full">
+                            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                            <span className="text-xs text-gray-600 dark:text-gray-400">
+                              Comments will sync when online
+                            </span>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="space-y-4">
+                        {/* Live Activity Banner */}
+                        {commentsConnected && (
+                          <div className="mb-4 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                              <span className="text-sm text-green-700 dark:text-green-300">
+                                Live comments active • New comments appear instantly
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        
                         {comments.map((comment) => (
-                          <CommentItem
-                            key={comment.id}
-                            comment={comment}
-                            currentUserId={user?.id}
-                            vulnerabilityId={cveId}
-                            onReply={handleReplyComment}
-                            onEdit={handleEditCommentFromItem}
-                            onDelete={handleDeleteCommentFromItem}
-                            onVote={handleVoteComment}
-                            onReplySubmitted={handleReplySubmitted}
-                            showReplyForm={replyingToComment === comment.id}
-                          />
+                          <div key={comment.id} className="relative">
+                            {/* Live indicator for new comments */}
+                            {commentsConnected && (
+                              <div className="absolute -left-2 top-2 w-1 h-1 bg-green-500 rounded-full animate-pulse opacity-0"></div>
+                            )}
+                            <CommentItem
+                              comment={comment}
+                              currentUserId={user?.id}
+                              vulnerabilityId={cveId}
+                              onReply={handleReplyComment}
+                              onEdit={handleEditCommentFromItem}
+                              onDelete={handleDeleteCommentFromItem}
+                              onVote={handleVoteComment}
+                              onReplySubmitted={handleReplySubmitted}
+                              showReplyForm={replyingToComment === comment.id}
+                            />
+                          </div>
                         ))}
+                        
+                        {/* Connection Status Footer */}
+                        <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                            <span>
+                              {commentsConnected 
+                                ? 'Real-time updates enabled' 
+                                : commentsPolling 
+                                ? 'Auto-refresh every 10 seconds' 
+                                : 'Offline mode • Comments cached locally'
+                              }
+                            </span>
+                            {comments.length > 0 && (
+                              <span>
+                                Last updated: {new Date().toLocaleTimeString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </CardContent>
@@ -1045,7 +1317,10 @@ export default function VulnerabilityDetailsPage() {
                           Share this vulnerability with your team for collaborative analysis
                         </p>
                       </div>
-                      <ShareVulnerability vulnerabilityId={vulnerability.cveId} />
+                      <ShareVulnerability 
+                        vulnerabilityId={vulnerability.cveId} 
+                        onShareSuccess={handleShareSuccess}
+                      />
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1056,7 +1331,11 @@ export default function VulnerabilityDetailsPage() {
                         <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
                           Start team discussions about this vulnerability
                         </p>
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => setActiveTab('discussions')}
+                        >
                           <MessageSquare className="h-4 w-4 mr-2" />
                           Start Discussion
                         </Button>
@@ -1069,12 +1348,110 @@ export default function VulnerabilityDetailsPage() {
                         <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
                           Export vulnerability data for external analysis tools
                         </p>
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            if (vulnerability) {
+                              const exportData = {
+                                cveId: vulnerability.cveId,
+                                title: vulnerability.title,
+                                description: vulnerability.description,
+                                severity: vulnerability.severity,
+                                cvssScore: vulnerability.cvssScore,
+                                publishedDate: vulnerability.publishedDate,
+                                affectedSoftware: vulnerability.affectedSoftware,
+                                references: vulnerability.references,
+                                exportedAt: new Date().toISOString(),
+                              };
+                              
+                              const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                              const url = URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = `${vulnerability.cveId}-export.json`;
+                              document.body.appendChild(a);
+                              a.click();
+                              document.body.removeChild(a);
+                              URL.revokeObjectURL(url);
+                              
+                              toast({
+                                title: 'Export Successful',
+                                description: 'Vulnerability data has been exported',
+                              });
+                            }
+                          }}
+                        >
                           <Download className="h-4 w-4 mr-2" />
                           Export Data
                         </Button>
                       </div>
                     </div>
+                  </CardContent>
+                </Card>
+
+                {/* Shared Vulnerabilities */}
+                <Card className="border-0 shadow-lg">
+                  <CardHeader>
+                    <CardTitle className="flex items-center space-x-2">
+                      <Share2 className="h-5 w-5 text-blue-600" />
+                      <span>Sharing History</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {loadingShares ? (
+                      <div className="animate-pulse space-y-3">
+                        <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                      </div>
+                    ) : sharedVulnerabilities.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Share2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+                          No Sharing History
+                        </h3>
+                        <p className="text-gray-600 dark:text-gray-400">
+                          This vulnerability hasn't been shared with anyone yet
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {sharedVulnerabilities.map((share, index) => (
+                          <div 
+                            key={share.id} 
+                            className={`flex items-center justify-between p-3 border rounded-lg transition-all duration-300 ${
+                              index === 0 ? 'animate-fade-in bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800' : ''
+                            }`}
+                          >
+                            <div className="flex items-center space-x-3">
+                              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                              <div>
+                                <p className="font-medium text-gray-900 dark:text-gray-100">
+                                  Shared with {share.shareType === 'team' ? 'Team' : 'User'}
+                                </p>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">
+                                  {new Date(share.createdAt).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              {share.permissions.canView && (
+                                <Badge variant="outline" className="text-xs">View</Badge>
+                              )}
+                              {share.permissions.canComment && (
+                                <Badge variant="outline" className="text-xs">Comment</Badge>
+                              )}
+                              {share.permissions.canEdit && (
+                                <Badge variant="outline" className="text-xs">Edit</Badge>
+                              )}
+                              {share.permissions.canShare && (
+                                <Badge variant="outline" className="text-xs">Share</Badge>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -1262,6 +1639,7 @@ export default function VulnerabilityDetailsPage() {
           </div>
         </div>
       </div>
+      
     </AppLayout>
   );
 }

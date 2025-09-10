@@ -1,22 +1,56 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/mongodb';
+import { getServerUser } from '@/lib/supabase-server';
 import type { Vulnerability } from '@/types/vulnerability';
 
 export async function GET(request: NextRequest) {
+  const startTime = Date.now();
   try {
     const { searchParams } = new URL(request.url);
+    console.log('Vulnerabilities API: Starting request at', new Date().toISOString());
+    
+    // Get user preferences for defaults
+    let userPreferences = null;
+    try {
+      const { user, error: userError } = await getServerUser();
+      console.log('User auth result:', { user: !!user, error: userError });
+      if (user) {
+        const db = await getDatabase();
+        const preferencesCollection = db.collection('user_preferences');
+        userPreferences = await preferencesCollection.findOne({ userId: user.id });
+        console.log('User preferences found:', { 
+          userId: user.id, 
+          hasPreferences: !!userPreferences,
+          maxResultsPerPage: userPreferences?.maxResultsPerPage 
+        });
+      } else {
+        console.log('No user found, userError:', userError);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch user preferences:', error);
+    }
+
     const page = Number.parseInt(searchParams.get('page') || '1');
-    const limit = Number.parseInt(searchParams.get('limit') || '25'); // Default to 25 per page
+    const limit = Number.parseInt(searchParams.get('limit') || (userPreferences?.maxResultsPerPage || 25).toString());
     const skip = (page - 1) * limit;
+
+    // Debug logging
+    console.log('Vulnerabilities API Debug:', {
+      urlLimit: searchParams.get('limit'),
+      userPreferenceLimit: userPreferences?.maxResultsPerPage,
+      finalLimit: limit,
+      hasUserPreferences: !!userPreferences
+    });
 
     // Ensure reasonable limits to prevent performance issues
     const maxLimit = 100;
     const actualLimit = Math.min(limit, maxLimit);
 
-    // Parse filters
+    // Parse filters with user preference defaults
     const searchText = searchParams.get('search') || '';
     const severities =
-      searchParams.get('severities')?.split(',').filter(Boolean) || [];
+      searchParams.get('severities')?.split(',').filter(Boolean) || 
+      (userPreferences?.defaultSeverityFilter || []);
     const sources =
       searchParams.get('sources')?.split(',').filter(Boolean) || [];
     const affectedSoftware =
@@ -36,6 +70,14 @@ export async function GET(request: NextRequest) {
 
     const db = await getDatabase();
     const collection = db.collection<Vulnerability>('vulnerabilities');
+    
+    // Test database connection
+    try {
+      await collection.findOne({}, { projection: { _id: 1 } });
+    } catch (dbError) {
+      console.error('Database connection test failed:', dbError);
+      throw new Error('Database connection failed');
+    }
 
     // Build query
     const query: Record<string, unknown> = {};
@@ -152,6 +194,9 @@ export async function GET(request: NextRequest) {
     const startIndex = skip + 1;
     const endIndex = Math.min(skip + actualLimit, totalCount);
 
+    const processingTime = Date.now() - startTime;
+    console.log(`Vulnerabilities API: Request completed in ${processingTime}ms`);
+    
     return NextResponse.json({
       vulnerabilities,
       pagination: {
@@ -176,11 +221,12 @@ export async function GET(request: NextRequest) {
       },
       meta: {
         requestTime: new Date().toISOString(),
-        processingTime: Date.now(),
+        processingTime,
       },
     });
   } catch (error) {
-    console.error('Error fetching vulnerabilities:', error);
+    const processingTime = Date.now() - startTime;
+    console.error(`Error fetching vulnerabilities after ${processingTime}ms:`, error);
 
     // Handle specific MongoDB errors
     if (error instanceof Error) {

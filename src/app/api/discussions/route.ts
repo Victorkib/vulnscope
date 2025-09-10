@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase } from '@/lib/mongodb';
 import { getServerUser } from '@/lib/supabase-server';
+import { emailService } from '@/lib/email-service';
+import { teamService } from '@/lib/team-service';
 import type { Discussion } from '@/types/collaboration';
 
 export async function GET(request: NextRequest) {
@@ -29,12 +31,23 @@ export async function GET(request: NextRequest) {
       query.teamId = teamId;
     }
 
-    // For now, show public discussions or user's own discussions
-    // In a real implementation, you'd check team membership
-    query.$or = [
-      { isPublic: true },
-      { authorId: user.id }
+    // Get user's team memberships for proper permission checking
+    const userTeamIds = await teamService.getUserTeamIds(user.id);
+    
+    // Build permission-based query
+    const permissionQueries = [
+      { isPublic: true }, // Public discussions
+      { authorId: user.id } // User's own discussions
     ];
+
+    // Add team-based discussions if user is a member of any teams
+    if (userTeamIds.length > 0) {
+      permissionQueries.push({
+        teamId: { $in: userTeamIds }
+      });
+    }
+
+    query.$or = permissionQueries;
 
     const discussions = await collection
       .find(query)
@@ -79,6 +92,17 @@ export async function POST(request: Request) {
         { error: 'Vulnerability ID and title are required' },
         { status: 400 }
       );
+    }
+
+    // Check team permissions if creating a team discussion
+    if (teamId) {
+      const hasPermission = await teamService.hasTeamPermission(user.id, teamId, 'create');
+      if (!hasPermission) {
+        return NextResponse.json(
+          { error: 'You do not have permission to create discussions in this team' },
+          { status: 403 }
+        );
+      }
     }
 
     const db = await getDatabase();

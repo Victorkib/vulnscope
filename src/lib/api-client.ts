@@ -3,9 +3,9 @@
  * Prevents duplicate requests and provides consistent error handling
  */
 
-interface RequestOptions extends RequestInit {
+interface RequestOptions extends Omit<RequestInit, 'cache'> {
   timeout?: number;
-  cache?: boolean;
+  enableCache?: boolean;
   cacheTTL?: number; // Time to live in milliseconds
 }
 
@@ -20,6 +20,13 @@ class APIClient {
   private pendingRequests = new Map<string, Promise<any>>();
   private cache = new Map<string, CacheEntry>();
   private defaultTimeout = 30000; // 30 seconds
+  private circuitBreaker = {
+    failures: 0,
+    lastFailureTime: 0,
+    threshold: 5, // Open circuit after 5 failures
+    timeout: 60000, // 1 minute timeout
+    isOpen: false
+  };
 
   private constructor() {
     // Clean up expired cache entries every 5 minutes
@@ -83,6 +90,18 @@ class APIClient {
 
     const requestKey = this.generateRequestKey(url, options);
     
+    // Check circuit breaker
+    if (this.circuitBreaker.isOpen) {
+      const timeSinceLastFailure = Date.now() - this.circuitBreaker.lastFailureTime;
+      if (timeSinceLastFailure < this.circuitBreaker.timeout) {
+        throw new Error('Circuit breaker is open. Service temporarily unavailable.');
+      } else {
+        // Reset circuit breaker
+        this.circuitBreaker.isOpen = false;
+        this.circuitBreaker.failures = 0;
+      }
+    }
+    
     // Check cache first for GET requests
     if (cache && fetchOptions.method === 'GET' || !fetchOptions.method) {
       const cachedData = this.getCachedData(requestKey);
@@ -96,13 +115,16 @@ class APIClient {
       return this.pendingRequests.get(requestKey)!;
     }
 
-    // Create abort controller for timeout
+    // Create abort controller for timeout (only if no signal provided)
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    // Use provided signal or create new one
+    const signal = fetchOptions.signal || controller.signal;
 
     const requestPromise = fetch(url, {
       ...fetchOptions,
-      signal: controller.signal,
+      signal: signal,
       credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
@@ -128,6 +150,14 @@ class APIClient {
       })
       .catch((error) => {
         clearTimeout(timeoutId);
+        
+        // Update circuit breaker on failure
+        this.circuitBreaker.failures++;
+        this.circuitBreaker.lastFailureTime = Date.now();
+        
+        if (this.circuitBreaker.failures >= this.circuitBreaker.threshold) {
+          this.circuitBreaker.isOpen = true;
+        }
         
         if (error.name === 'AbortError') {
           throw new Error(`Request timeout after ${timeout}ms`);
@@ -183,11 +213,15 @@ class APIClient {
       return;
     }
 
+    const keysToDelete: string[] = [];
     for (const key of this.cache.keys()) {
       if (key.includes(pattern)) {
-        this.cache.delete(key);
+        keysToDelete.push(key);
       }
     }
+    
+    keysToDelete.forEach(key => this.cache.delete(key));
+    console.log(`Cleared ${keysToDelete.length} cache entries for pattern: ${pattern}`);
   }
 
   // Get cache statistics

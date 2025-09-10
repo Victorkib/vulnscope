@@ -117,8 +117,12 @@ export class AlertService {
         alertRules = await response.json();
       }
 
+      // Limit the number of rules to process to prevent system overload
+      const maxRules = 10;
+      const rulesToProcess = alertRules.slice(0, maxRules);
+
       // Check each rule
-      for (const rule of alertRules) {
+      for (const rule of rulesToProcess) {
         if (this.matchesConditions(vulnerability, rule.conditions)) {
           await this.triggerAlert(rule, vulnerability);
         }
@@ -236,6 +240,21 @@ export class AlertService {
    */
   private async sendEmailAlert(trigger: AlertTrigger, vulnerability: VulnType): Promise<void> {
     try {
+      // Get alert rule name for email template
+      let alertRuleName = 'Custom Alert Rule';
+      try {
+        if (this.isServerContext()) {
+          const db = await getDatabase();
+          const rulesCollection = db.collection<AlertRule>('alert_rules');
+          const rule = await rulesCollection.findOne({ id: trigger.alertRuleId });
+          if (rule) {
+            alertRuleName = rule.name;
+          }
+        }
+      } catch (ruleError) {
+        console.error('Error fetching alert rule name:', ruleError);
+      }
+
       // Always make HTTP request for external services
       const baseUrl = this.isServerContext() ? process.env.NEXTAUTH_URL || 'http://localhost:3000' : '';
       await fetch(`${baseUrl}/api/alerts/send-email`, {
@@ -245,6 +264,7 @@ export class AlertService {
           triggerId: trigger.id,
           vulnerability,
           userId: trigger.userId,
+          alertRuleName,
         }),
       });
     } catch (error) {

@@ -189,7 +189,7 @@ export async function testVotingSystemFixed() {
     console.log('\n🏆 Test 8: Testing reputation system integration...');
     
     try {
-      const reputation = await reputationService.calculateUserReputation(testComment.userId);
+      const reputation = await reputationService.getUserReputation(testComment.userId);
       console.log(`✅ User reputation calculated: ${reputation.score} points (Level ${reputation.level})`);
     } catch (repError) {
       console.log('⚠️ Reputation calculation failed:', repError);

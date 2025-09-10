@@ -40,11 +40,11 @@ export default function MetricsCards({
 
   const totalVulns = stats.total;
   const criticalPercentage =
-    totalVulns > 0 ? (stats.critical / totalVulns) * 100 : 0;
-  const highPercentage = totalVulns > 0 ? (stats.high / totalVulns) * 100 : 0;
+    totalVulns > 0 ? (stats.bySeverity.CRITICAL / totalVulns) * 100 : 0;
+  const highPercentage = totalVulns > 0 ? (stats.bySeverity.HIGH / totalVulns) * 100 : 0;
   const mediumPercentage =
-    totalVulns > 0 ? (stats.medium / totalVulns) * 100 : 0;
-  const lowPercentage = totalVulns > 0 ? (stats.low / totalVulns) * 100 : 0;
+    totalVulns > 0 ? (stats.bySeverity.MEDIUM / totalVulns) * 100 : 0;
+  const lowPercentage = totalVulns > 0 ? (stats.bySeverity.LOW / totalVulns) * 100 : 0;
 
   const getChangeIndicator = (current: number, previous = 0) => {
     if (previous === 0) return null;
@@ -102,7 +102,7 @@ export default function MetricsCards({
         <CardContent>
           <div className="flex items-end space-x-2">
             <div className="text-2xl font-bold text-white">
-              {stats.critical}
+              {stats.bySeverity.CRITICAL}
             </div>
             <Badge className="bg-red-500/20 text-red-300 border-red-500/30 text-xs">
               {criticalPercentage.toFixed(1)}%
@@ -125,7 +125,7 @@ export default function MetricsCards({
         </CardHeader>
         <CardContent>
           <div className="flex items-end space-x-2">
-            <div className="text-2xl font-bold text-white">{stats.high}</div>
+            <div className="text-2xl font-bold text-white">{stats.bySeverity.HIGH}</div>
             <Badge className="bg-orange-500/20 text-orange-300 border-orange-500/30 text-xs">
               {highPercentage.toFixed(1)}%
             </Badge>
@@ -148,7 +148,7 @@ export default function MetricsCards({
         <CardContent>
           <div className="flex items-end space-x-2">
             <div className="text-2xl font-bold text-white">
-              {stats?.bySeverity?.medium + stats?.bySeverity?.low}
+              {stats?.bySeverity?.MEDIUM + stats?.bySeverity?.LOW}
             </div>
             <Badge className="bg-green-500/20 text-green-300 border-green-500/30 text-xs">
               {(mediumPercentage + lowPercentage).toFixed(1)}%
@@ -158,14 +158,14 @@ export default function MetricsCards({
             <div className="flex-1">
               <div className="flex justify-between text-xs text-white/60 mb-1">
                 <span>Medium</span>
-                <span>{stats.medium}</span>
+                <span>{stats.bySeverity.MEDIUM}</span>
               </div>
               <Progress value={mediumPercentage} className="h-1" />
             </div>
             <div className="flex-1">
               <div className="flex justify-between text-xs text-white/60 mb-1">
                 <span>Low</span>
-                <span>{stats.low}</span>
+                <span>{stats.bySeverity.LOW}</span>
               </div>
               <Progress value={lowPercentage} className="h-1" />
             </div>
